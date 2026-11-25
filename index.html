@@ -10,38 +10,40 @@
   <style>
     body { background-color: #111827; color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
     .kmb-red { background-color: #E3001B; }
+    input[type="datetime-local"] { color-scheme: dark; }
   </style>
 </head>
-<body class="pb-20">
+<body class="pb-24">
 
-  <!-- 頂部導航列 -->
-  <header class="kmb-red p-4 pt-10 shadow-lg sticky top-0 z-10 flex justify-between items-center">
+  <!-- 固定紅色頁頂 -->
+  <header class="kmb-red px-4 pb-3.5 pt-11 shadow-lg fixed top-0 left-0 right-0 z-30 flex justify-between items-center">
     <div>
       <h1 class="text-xl font-bold tracking-wider">🚌 九巴月票管家</h1>
       <p class="text-xs text-red-100" id="current-month-label">載入中...</p>
     </div>
-    <button onclick="openSettings()" class="bg-black/25 px-3 py-1.5 rounded-lg text-sm font-bold active:scale-95">
-      ⚙️ 管理路線 / 查站
+    <button onclick="openSettings()" class="bg-black/25 hover:bg-black/35 px-3 py-1.5 rounded-lg text-sm font-bold active:scale-95">
+      ⚙️ 定位搜站 / 管理
     </button>
   </header>
 
   <!-- 浮動提示 Toast -->
-  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-emerald-600 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg opacity-0 pointer-events-none transition-opacity duration-300 z-50">
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-emerald-600 text-white px-4 py-2.5 rounded-full text-sm font-bold shadow-xl opacity-0 pointer-events-none transition-opacity duration-300 z-[60] whitespace-nowrap">
     ✅ 已記錄車程
   </div>
 
-  <main class="p-4 max-w-md mx-auto space-y-5">
+  <!-- 主內容區 (預留頂部固定 Header 空間) -->
+  <main class="px-4 pt-24 max-w-md mx-auto space-y-4">
 
-    <!-- 1. 月票回本進度卡片 -->
+    <!-- 1. 月票回本進度卡片 (雲端 + 本機暫存即時合計) -->
     <section class="bg-gray-800 rounded-2xl p-5 shadow-md border border-gray-700">
       <div class="flex justify-between items-end mb-2">
         <div>
-          <span class="text-xs text-gray-400">本月累積正價車資</span>
+          <span class="text-xs text-gray-400">本月累積正價車資 (含待匯出)</span>
           <div class="text-3xl font-extrabold text-white mt-0.5">$<span id="total-fare">0.0</span></div>
         </div>
         <div class="text-right">
           <span id="status-badge" class="px-2.5 py-1 rounded-full text-xs font-bold bg-yellow-500/20 text-yellow-400">
-            載入中
+            計算中
           </span>
           <div class="text-xs text-gray-400 mt-1">月票成本 $834</div>
         </div>
@@ -54,81 +56,182 @@
         <span id="diff-text">仲差 $834.0 回本</span>
         <span id="trip-count">共 0 程</span>
       </div>
-    </section>
 
-    <!-- 2. 常用車站實時到站 -->
-    <section class="bg-gray-800 rounded-2xl p-4 shadow-md border border-gray-700">
-      <div class="flex justify-between items-center mb-3">
-        <h2 class="text-base font-bold">⏱️ 常用站實時到站 (雲端同步 Watch)</h2>
-        <button onclick="refreshAllEtas()" class="text-xs bg-gray-700 px-2.5 py-1 rounded-md text-gray-200 active:scale-95">
-          🔄 刷新
+      <!-- 本機暫存與凌晨12點自動匯出狀態列 -->
+      <div id="staging-bar" class="mt-3 pt-3 border-t border-gray-700/80 flex justify-between items-center text-xs">
+        <div class="text-amber-400 flex items-center gap-1.5">
+          <span>📦 本機暫存：<b id="pending-count">0</b> 程 ($<span id="pending-fare">0.0</span>)</span>
+        </div>
+        <button onclick="exportPendingTripsToCloud(false)" id="manual-export-btn" class="bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 px-2.5 py-1 rounded-lg font-bold active:scale-95">
+          ☁️ 立即匯出
         </button>
       </div>
-      <div id="eta-list" class="space-y-2.5">
-        <p class="text-xs text-gray-400 text-center py-3">請按右上角「管理路線」新增你常搭的車站</p>
+      <p class="text-[11px] text-gray-500 mt-1">系統將於每日凌晨 00:00 自動將本機暫存紀錄匯出至雲端</p>
+    </section>
+
+    <!-- 2. 智能建議路線 (根據使用紀錄自動生成) -->
+    <section id="suggested-section" class="bg-gray-800 rounded-2xl p-4 shadow-md border border-gray-700 hidden">
+      <div class="flex justify-between items-center mb-2.5">
+        <h2 class="text-sm font-bold text-amber-300">⚡ 常用建議路線 (免搜尋一鍵記帳)</h2>
+        <span class="text-[11px] text-gray-400">按搭車習慣排序</span>
+      </div>
+      <div id="suggested-list" class="flex gap-2 overflow-x-auto pb-1"></div>
+    </section>
+
+    <!-- 3. 實時到站 ＆ 一鍵打卡入帳 (支援手動排序、定位排序及取消) -->
+    <section class="bg-gray-800 rounded-2xl p-4 shadow-md border border-gray-700">
+      <div class="flex justify-between items-center mb-3 gap-2">
+        <h2 class="text-base font-bold truncate">⏱️ 實時到站 ＆ 一鍵打卡</h2>
+        <div id="main-route-controls" class="flex items-center gap-1.5 flex-shrink-0">
+          <button onclick="enterMainSortMode()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded-md text-gray-200 active:scale-95">
+            ⇅ 排序
+          </button>
+          <button onclick="refreshAllEtas()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded-md text-gray-200 active:scale-95">
+            🔄 刷新
+          </button>
+        </div>
+      </div>
+      <div id="unified-route-list" class="space-y-3">
+        <p class="text-xs text-gray-400 text-center py-4">尚未儲存路線，請按右上角「定位搜站 / 管理」新增</p>
       </div>
     </section>
 
-    <!-- 3. 一鍵打卡入帳區 -->
+    <!-- 4. 本月搭車紀錄明細 (支援編輯時間與可靠刪除) -->
     <section class="bg-gray-800 rounded-2xl p-4 shadow-md border border-gray-700">
-      <h2 class="text-base font-bold mb-3">💳 一鍵拍卡入帳</h2>
-      <div id="quick-log-grid" class="grid grid-cols-2 gap-2.5"></div>
-    </section>
-
-    <!-- 4. 本月搭車紀錄明細 -->
-    <section class="bg-gray-800 rounded-2xl p-4 shadow-md border border-gray-700">
-      <h2 class="text-base font-bold mb-3">📋 本月車程紀錄</h2>
-      <div id="history-list" class="divide-y divide-gray-700 max-h-64 overflow-y-auto text-sm">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="text-base font-bold">📋 本月車程紀錄</h2>
+        <span class="text-[11px] text-gray-400">暫存紀錄將於 00:00 上雲</span>
+      </div>
+      <div id="history-list" class="divide-y divide-gray-700 max-h-80 overflow-y-auto text-sm">
         <p class="text-xs text-gray-400 text-center py-3">暫無紀錄</p>
       </div>
     </section>
 
   </main>
 
-  <!-- 設定與九巴站碼查詢 Modal -->
-  <div id="settings-modal" class="fixed inset-0 bg-black/80 hidden z-50 flex items-center justify-center p-4">
-    <div class="bg-gray-800 rounded-2xl w-full max-w-md p-5 border border-gray-700 max-h-[90vh] overflow-y-auto space-y-4">
-      <div class="flex justify-between items-center border-b border-gray-700 pb-3">
-        <h3 class="text-lg font-bold">⚙️ 路線管理 & 站碼搜尋器</h3>
-        <button onclick="closeSettings()" class="text-gray-400 text-2xl font-bold leading-none">&times;</button>
+  <!-- 三分二大小頁面：GPS 定位搜站 & 路線管理 Modal -->
+  <div id="settings-modal" class="fixed inset-0 bg-black/80 hidden z-50 flex items-end sm:items-center justify-center">
+    <div class="bg-gray-800 rounded-t-3xl sm:rounded-2xl w-full max-w-md border-t sm:border border-gray-700 h-[67vh] max-h-[67vh] flex flex-col overflow-hidden shadow-2xl">
+      
+      <!-- 彈窗固定頂欄 -->
+      <div class="flex-shrink-0 flex justify-between items-center px-4 py-3 border-b border-gray-700 bg-gray-800">
+        <div>
+          <h3 class="text-base font-bold">📍 附近路線搜站 ＆ 管理</h3>
+          <div class="flex items-center gap-2 mt-0.5">
+            <p id="fare-db-status" class="text-[11px] text-gray-400">⏳ 正在同步九巴官方定價表...</p>
+            <button onclick="initOfficialFares(true)" class="text-[10px] text-sky-400 underline">重載定價</button>
+          </div>
+        </div>
+        <button onclick="closeSettings()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 w-8 h-8 rounded-full text-xl font-bold flex items-center justify-center">&times;</button>
       </div>
 
-      <!-- 步驟 1：搜尋官方站碼 -->
-      <div class="bg-gray-900 p-3 rounded-xl space-y-2 border border-gray-700">
-        <p class="text-xs font-bold text-red-400">步驟 1：搜尋九巴路線及上車站</p>
-        <div class="flex gap-2">
-          <input id="search-route-input" type="text" placeholder="路線如 63X" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm w-1/2 uppercase">
-          <select id="search-dir-input" class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm w-1/2">
-            <option value="outbound">去程 (Outbound)</option>
-            <option value="inbound">回程 (Inbound)</option>
-          </select>
-        </div>
-        <button onclick="lookupKmbStops()" class="w-full kmb-red py-1.5 rounded-lg text-sm font-bold active:scale-95">搜尋沿途車站</button>
-        <div id="stop-lookup-results" class="max-h-36 overflow-y-auto text-xs space-y-1.5 pt-1"></div>
-      </div>
+      <!-- 彈窗可捲動內容區 -->
+      <div class="flex-1 overflow-y-auto p-4 space-y-4">
 
-      <!-- 步驟 2：填入車資並儲存至雲端 -->
-      <div class="space-y-2 bg-gray-900 p-3 rounded-xl border border-gray-700">
-        <p class="text-xs font-bold text-emerald-400">步驟 2：確認車資並儲存 (自動同步手錶)</p>
-        <div class="grid grid-cols-2 gap-2">
-          <input id="new-route" type="text" placeholder="路線 (如 63X)" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm uppercase">
-          <input id="new-fare" type="number" step="0.1" placeholder="正價車資 (如 16.5)" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+        <!-- 步驟 1：即時定位附近九巴站（先以路線顯示） -->
+        <div class="bg-gray-900 p-3 rounded-xl space-y-2.5 border border-gray-700">
+          <div class="flex justify-between items-center">
+            <p class="text-xs font-bold text-sky-400">步驟 1：附近九巴路線 (點擊查看各站距離)</p>
+            <button onclick="findNearbyRoutes()" class="bg-sky-600 hover:bg-sky-500 text-white text-xs px-2.5 py-1 rounded-lg font-bold active:scale-95">
+              📡 重新定位
+            </button>
+          </div>
+          <div id="nearby-routes-list" class="max-h-36 overflow-y-auto space-y-1.5 text-xs">
+            <p class="text-gray-400">正在等待 GPS 定位...</p>
+          </div>
         </div>
-        <input id="new-stop-name" type="text" placeholder="上車站名 (點上方搜尋結果自動填入)" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
-        <div class="grid grid-cols-3 gap-2">
-          <input id="new-stop-id" type="text" placeholder="16位 Stop ID" class="col-span-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs">
-          <select id="new-dir" class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-xs">
-            <option value="O">去程 (O)</option>
-            <option value="I">回程 (I)</option>
-          </select>
-        </div>
-        <button onclick="addCustomRoute()" class="w-full bg-emerald-600 hover:bg-emerald-500 py-2 rounded-lg text-sm font-bold active:scale-95">💾 儲存路線至雲端</button>
-      </div>
 
-      <!-- 現有路線刪除管理 -->
-      <div>
-        <p class="text-xs font-bold text-gray-300 mb-2">已儲存路線 (按刪除可移除)</p>
-        <div id="manage-routes-list" class="space-y-1.5 text-xs"></div>
+        <!-- 步驟 2：顯示所選路線的各個巴士站距離及到站時間（支援展開與縮合） -->
+        <div id="route-stops-box" class="bg-gray-900 p-3 rounded-xl space-y-2 border border-gray-700 hidden">
+          <div class="flex justify-between items-center gap-2">
+            <p class="text-xs font-bold text-amber-400 truncate">步驟 2：<span id="selected-route-title">路線</span> 各站距離</p>
+            <button id="toggle-full-stops-btn" onclick="toggleFullRouteStops()" class="flex-shrink-0 text-[11px] bg-gray-800 hover:bg-gray-700 text-sky-300 border border-sky-500/40 px-2 py-0.5 rounded font-bold">
+              展開全線車站
+            </button>
+          </div>
+          <div id="route-stops-list" class="max-h-44 overflow-y-auto space-y-1.5 text-xs"></div>
+        </div>
+
+        <!-- 備用：手動輸入路線號碼搜尋（含到達時間） -->
+        <details class="bg-gray-900/60 p-2.5 rounded-xl border border-gray-700/70 text-xs">
+          <summary class="cursor-pointer text-gray-300 font-bold">🔍 或手動輸入路線號碼搜尋 (含到達時間)</summary>
+          <div class="mt-2 space-y-2">
+            <div class="flex gap-2">
+              <input id="search-route-input" type="text" placeholder="路線如 63X" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm w-1/2 uppercase">
+              <select id="search-dir-input" class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm w-1/2">
+                <option value="outbound">去程 (Outbound)</option>
+                <option value="inbound">回程 (Inbound)</option>
+              </select>
+            </div>
+            <button onclick="lookupKmbStopsManual()" class="w-full kmb-red py-1.5 rounded-lg text-xs font-bold active:scale-95">搜尋沿途車站及到站時間</button>
+            <div id="manual-stop-results" class="max-h-40 overflow-y-auto space-y-1.5"></div>
+          </div>
+        </details>
+
+        <!-- 步驟 3：自動填入官方正價並儲存至雲端 -->
+        <div class="space-y-2 bg-gray-900 p-3 rounded-xl border border-emerald-700/60">
+          <div class="flex justify-between items-center">
+            <p class="text-xs font-bold text-emerald-400">步驟 3：確認官方正價並儲存路線</p>
+            <span id="fare-source-badge" class="text-[10px] text-gray-400"></span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <input id="new-route" type="text" placeholder="路線 (如 63X)" oninput="autoFillOfficialFareFromInput()" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm uppercase">
+            <input id="new-fare" type="number" step="0.1" placeholder="官方正價 (自動填入)" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm font-bold text-emerald-300">
+          </div>
+          <input id="new-stop-name" type="text" placeholder="上車站名 (點上方車站自動填入)" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+          <div class="grid grid-cols-3 gap-2">
+            <input id="new-stop-id" type="text" placeholder="16位 Stop ID" class="col-span-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs">
+            <select id="new-dir" onchange="autoFillOfficialFareFromInput()" class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-xs">
+              <option value="O">去程 (O)</option>
+              <option value="I">回程 (I)</option>
+            </select>
+          </div>
+          <input id="new-stop-seq" type="hidden" value="">
+          <button onclick="addCustomRoute()" class="w-full bg-emerald-600 hover:bg-emerald-500 py-2.5 rounded-lg text-sm font-bold active:scale-95">
+            💾 儲存路線 (同步 iPhone ＆ Watch)
+          </button>
+        </div>
+
+        <!-- 已儲存常用路線（支援上下排序與刪除） -->
+        <div>
+          <div class="flex justify-between items-center mb-2">
+            <p class="text-xs font-bold text-gray-300">已儲存常用路線 (可上下排序)</p>
+            <span class="text-[10px] text-gray-400">同步主頁及 Watch</span>
+          </div>
+          <div id="manage-routes-list" class="space-y-1.5 text-xs pb-2"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- 編輯車程時間 Modal -->
+  <div id="edit-time-modal" class="fixed inset-0 bg-black/85 hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-800 rounded-2xl w-full max-w-sm p-5 border border-gray-700 space-y-4">
+      <div class="flex justify-between items-center border-b border-gray-700 pb-2.5">
+        <h3 class="text-base font-bold">🕒 編輯搭車時間</h3>
+        <button onclick="closeEditTimeModal()" class="text-gray-400 text-2xl font-bold leading-none">&times;</button>
+      </div>
+      <div class="space-y-2">
+        <p id="edit-trip-summary" class="text-xs text-gray-300"></p>
+        <label class="block text-xs text-gray-400">選擇日期與時間 (香港時間)：</label>
+        <input id="edit-trip-datetime" type="datetime-local" class="w-full bg-gray-900 border border-gray-600 rounded-xl px-3 py-2.5 text-sm text-white">
+      </div>
+      <div class="flex gap-2 pt-1">
+        <button onclick="closeEditTimeModal()" class="w-1/2 bg-gray-700 py-2 rounded-xl text-sm font-bold">取消</button>
+        <button onclick="saveEditedTripTime()" class="w-1/2 bg-emerald-600 hover:bg-emerald-500 py-2 rounded-xl text-sm font-bold">儲存時間</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 刪除車程確認 Modal (取代 iOS PWA 易失效的原生 confirm) -->
+  <div id="delete-confirm-modal" class="fixed inset-0 bg-black/85 hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-800 rounded-2xl w-full max-w-sm p-5 border border-gray-700 space-y-4">
+      <h3 class="text-base font-bold text-red-400">🗑️ 確定刪除此程紀錄？</h3>
+      <p id="delete-trip-summary" class="text-xs text-gray-300"></p>
+      <div class="flex gap-2 pt-1">
+        <button onclick="closeDeleteModal()" class="w-1/2 bg-gray-700 py-2 rounded-xl text-sm font-bold">取消</button>
+        <button onclick="confirmDeleteTrip()" class="w-1/2 bg-red-600 hover:bg-red-500 py-2 rounded-xl text-sm font-bold text-white">確定刪除</button>
       </div>
     </div>
   </div>
@@ -136,7 +239,7 @@
   <!-- Firebase SDK -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-    import { getFirestore, collection, addDoc, query, where, onSnapshot, deleteDoc, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getFirestore, collection, addDoc, query, where, onSnapshot, deleteDoc, doc, setDoc, updateDoc, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyAwleOsALATtT61-J0QLq41LD3dKghD0aE",
@@ -148,51 +251,268 @@
     const db = getFirestore(app);
 
     const PASS_COST = 834;
-    const hkDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Hong_Kong' }));
-    const CURRENT_MONTH = `${hkDate.getFullYear()}-${String(hkDate.getMonth() + 1).padStart(2, '0')}`;
-    document.getElementById('current-month-label').innerText = `${CURRENT_MONTH} 月份統計`;
+    const PENDING_STORAGE_KEY = 'kmb_pending_trips_v1';
+    const STOPS_CACHE_KEY = 'kmb_all_stops_cache_v1';
+    const FARES_CACHE_KEY = 'kmb_official_fares_cache_v2';
+    const LAST_EXPORT_DATE_KEY = 'kmb_last_midnight_export';
 
     let savedRoutes = [];
+    let savedRoutesBeforeSort = null;
+    let routeDistPreview = {}; // 排序時顯示各路線距離 (米)
+    let cloudTrips = [];
+    let pendingTrips = JSON.parse(localStorage.getItem(PENDING_STORAGE_KEY) || '[]');
+    let etaCache = {};
+    let isExporting = false;
+    let isMainSortMode = false;
 
-    function showToast(msg) {
-      const toast = document.getElementById('toast');
-      toast.innerText = msg;
-      toast.classList.remove('opacity-0');
-      setTimeout(() => toast.classList.add('opacity-0'), 2000);
+    // 定位與選線暫存狀態
+    let lastUserCoords = null;
+    let nearbyGroupedRoutes = {};
+    let currentSelectedNearbyKey = null;
+    let isFullStopsExpanded = false;
+
+    // 官方車費快取
+    let officialFareDB = { routeFares: {}, stopFares: {}, loaded: false };
+
+    // 編輯時間 & 刪除目標
+    let editingTripTarget = null;
+    let deletingTripTarget = null;
+
+    function getHKTimeInfo(dateObj = new Date()) {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Hong_Kong',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+      }).formatToParts(dateObj);
+      const map = {};
+      parts.forEach(p => { map[p.type] = p.value; });
+      const hour = parseInt(map.hour, 10) % 24;
+      const minute = parseInt(map.minute, 10);
+      const hh = String(hour).padStart(2, '0');
+      const mm = String(minute).padStart(2, '0');
+      return {
+        year: map.year,
+        month: map.month,
+        day: map.day,
+        hour,
+        minute,
+        dateStr: `${map.year}-${map.month}-${map.day}`,
+        monthStr: `${map.year}-${map.month}`,
+        datetimeLocal: `${map.year}-${map.month}-${map.day}T${hh}:${mm}`
+      };
     }
 
-    // 1. 監聽雲端常用路線設定 (settings/user_routes)
-    onSnapshot(doc(db, "settings", "user_routes"), (docSnap) => {
-      if (docSnap.exists() && docSnap.data().list) {
-        savedRoutes = docSnap.data().list;
-      } else {
-        savedRoutes = [];
+    const initHK = getHKTimeInfo();
+    const CURRENT_MONTH = initHK.monthStr;
+    document.getElementById('current-month-label').innerText = `${CURRENT_MONTH} 月份統計`;
+
+    function escapeHtml(str) {
+      return String(str || '').replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+
+    function showToast(msg, isWarning = false) {
+      const toast = document.getElementById('toast');
+      toast.innerText = msg;
+      toast.className = `fixed bottom-6 left-1/2 -translate-x-1/2 ${isWarning ? 'bg-amber-600' : 'bg-emerald-600'} text-white px-4 py-2.5 rounded-full text-sm font-bold shadow-xl transition-opacity duration-300 z-[60] whitespace-nowrap`;
+      toast.classList.remove('opacity-0');
+      setTimeout(() => toast.classList.add('opacity-0'), 2400);
+    }
+
+    function savePendingToLocal() {
+      localStorage.setItem(PENDING_STORAGE_KEY, JSON.stringify(pendingTrips));
+      recalculateAndRenderAll();
+    }
+
+    // ==========================================
+    // 0. 九巴官方正價資料庫引擎 (支援物件解包 + KMB/LWB)
+    // ==========================================
+    function extractArrayFromTDJson(raw) {
+      if (Array.isArray(raw)) return raw;
+      if (raw && typeof raw === 'object') {
+        if (Array.isArray(raw.ROUTE)) return raw.ROUTE;
+        if (Array.isArray(raw.RSTOP)) return raw.RSTOP;
+        const firstArr = Object.values(raw).find(v => Array.isArray(v));
+        if (firstArr) return firstArr;
       }
-      renderRoutesUI();
+      return [];
+    }
+
+    window.initOfficialFares = async (forceRefresh = false) => {
+      const statusEl = document.getElementById('fare-db-status');
+      const cached = JSON.parse(localStorage.getItem(FARES_CACHE_KEY) || 'null');
+
+      if (!forceRefresh && cached && (Date.now() - cached.ts < 7 * 86400 * 1000) && cached.routeFares && Object.keys(cached.routeFares).length > 0) {
+        officialFareDB = { routeFares: cached.routeFares, stopFares: cached.stopFares || {}, loaded: true };
+        if (statusEl) statusEl.innerText = `🟢 官方正價庫已就緒 (${Object.keys(officialFareDB.routeFares).length} 條線)`;
+        return;
+      }
+
+      if (statusEl) statusEl.innerText = '⏳ 正在下載九巴官方定價表...';
+      try {
+        const routeRes = await fetch('https://static.data.gov.hk/td/routes-fares-json/ROUTE_BUS.json');
+        const routeRaw = await routeRes.json();
+        const routeList = extractArrayFromTDJson(routeRaw);
+
+        const routeFares = {};
+        const kmbRouteIdMap = {};
+
+        routeList.forEach(r => {
+          const comp = String(r.COMPANY_CODE || r.companyCode || '').toUpperCase();
+          // 涵蓋九巴 KMB、龍運 LWB 及聯營路線
+          if (!comp.includes('KMB') && !comp.includes('LWB')) return;
+          const rNo = String(r.ROUTE_NAMEE || r.routeNameE || '').trim().toUpperCase();
+          const rId = String(r.ROUTE_ID || r.routeId || '');
+          const fare = parseFloat(r.FULL_FARE ?? r.fullFare);
+          if (rNo) {
+            if (rId) kmbRouteIdMap[rId] = rNo;
+            if (!isNaN(fare) && fare > 0) {
+              if (!routeFares[rNo] || fare > routeFares[rNo]) {
+                routeFares[rNo] = fare;
+              }
+            }
+          }
+        });
+
+        officialFareDB = { routeFares, stopFares: {}, loaded: true };
+        if (statusEl) statusEl.innerText = `🟡 已載入 ${Object.keys(routeFares).length} 線正價，同步分段中...`;
+
+        // 刷新已展開的路線車資顯示
+        if (Object.keys(nearbyGroupedRoutes).length > 0) renderNearbyGroupedRoutesList();
+        if (currentSelectedNearbyKey) renderStep2Stops();
+        autoFillOfficialFareFromInput();
+
+        // 下載分段收費表
+        const rstopRes = await fetch('https://static.data.gov.hk/td/routes-fares-json/RSTOP_BUS.json');
+        const rstopRaw = await rstopRes.json();
+        const rstopList = extractArrayFromTDJson(rstopRaw);
+        const stopFares = {};
+
+        rstopList.forEach(rs => {
+          const rId = String(rs.ROUTE_ID || rs.routeId || '');
+          const rNo = kmbRouteIdMap[rId];
+          if (!rNo) return;
+          const rSeq = String(rs.ROUTE_SEQ || rs.routeSeq || '1');
+          const dir = rSeq === '2' ? 'I' : 'O';
+          const sSeq = String(rs.STOP_SEQ || rs.stopSeq || '');
+          const fare = parseFloat(rs.FULL_FARE ?? rs.fullFare);
+          if (sSeq && !isNaN(fare) && fare > 0) {
+            const key = `${rNo}_${dir}_${sSeq}`;
+            if (!stopFares[key] || fare > stopFares[key]) {
+              stopFares[key] = fare;
+            }
+          }
+        });
+
+        officialFareDB = { routeFares, stopFares, loaded: true };
+        try {
+          localStorage.setItem(FARES_CACHE_KEY, JSON.stringify({
+            ts: Date.now(),
+            routeFares,
+            stopFares
+          }));
+        } catch { /* 容量不足略過持久化 */ }
+
+        if (statusEl) statusEl.innerText = `🟢 官方正價庫已就緒 (${Object.keys(routeFares).length} 條線含分段)`;
+        if (Object.keys(nearbyGroupedRoutes).length > 0) renderNearbyGroupedRoutesList();
+        if (currentSelectedNearbyKey) renderStep2Stops();
+        autoFillOfficialFareFromInput();
+      } catch (err) {
+        if (statusEl) statusEl.innerText = `⚠️ 官方定價連線逾時，可點右側重載`;
+      }
+    };
+
+    function lookupOfficialFare(route, dir = 'O', seq = null) {
+      const r = String(route || '').trim().toUpperCase();
+      if (!r) return null;
+      if (seq !== null && seq !== '' && officialFareDB.stopFares) {
+        const stopKey = `${r}_${dir}_${seq}`;
+        if (officialFareDB.stopFares[stopKey] !== undefined) {
+          return { fare: officialFareDB.stopFares[stopKey], type: '分段正價' };
+        }
+      }
+      if (officialFareDB.routeFares && officialFareDB.routeFares[r] !== undefined) {
+        return { fare: officialFareDB.routeFares[r], type: '全線正價' };
+      }
+      return null;
+    }
+
+    // 單一 API 取得整條路線所有站序的實時到站分鐘數
+    async function fetchRouteEtaMapBySeq(route) {
+      const map = {};
+      try {
+        const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-eta/${route.toUpperCase()}/1`);
+        const json = await res.json();
+        const now = new Date();
+        (json.data || []).forEach(item => {
+          if (!item.eta) return;
+          const key = `${item.dir}_${item.seq}`;
+          if (!map[key]) map[key] = [];
+          if (map[key].length < 3) {
+            const mins = Math.max(0, Math.round((new Date(item.eta) - now) / 60000));
+            map[key].push(mins === 0 ? '即到' : `${mins}分`);
+          }
+        });
+      } catch { /* 忽略單次網路失敗 */ }
+      return map;
+    }
+
+    // ==========================================
+    // 1. 監聽雲端常用路線設定 (同步 Watch)
+    // ==========================================
+    onSnapshot(doc(db, "settings", "user_routes"), (docSnap) => {
+      savedRoutes = (docSnap.exists() && docSnap.data().list) ? docSnap.data().list : [];
+      renderManageList();
+      renderUnifiedRouteCards();
       refreshAllEtas();
+      renderSuggestedRoutes();
     });
 
     async function syncRoutesToCloud(newList) {
       await setDoc(doc(db, "settings", "user_routes"), { list: newList });
     }
 
-    // 2. 監聽當月車程紀錄
+    // ==========================================
+    // 2. 監聽當月雲端車程紀錄
+    // ==========================================
     const q = query(collection(db, "trips"), where("month", "==", CURRENT_MONTH));
     onSnapshot(q, (snapshot) => {
-      let total = 0;
-      let trips = [];
+      const list = [];
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        total += Number(data.fare || 0);
-        trips.push({ id: docSnap.id, ...data });
+        list.push({
+          id: docSnap.id,
+          source: 'cloud',
+          route: data.route,
+          fare: Number(data.fare || 0),
+          stopName: data.stopName || '',
+          timestamp: data.createdAt ? data.createdAt.seconds * 1000 : Date.now()
+        });
       });
-      trips.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-      updateDashboard(total, trips);
+      cloudTrips = list;
+      recalculateAndRenderAll();
     });
 
-    function updateDashboard(total, trips) {
+    // ==========================================
+    // 3. 整合本機暫存與雲端數據更新畫面
+    // ==========================================
+    function recalculateAndRenderAll() {
+      const currentPending = pendingTrips.filter(t => t.month === CURRENT_MONTH);
+      const allTrips = [
+        ...currentPending.map(t => ({ ...t, source: 'local' })),
+        ...cloudTrips
+      ].sort((a, b) => b.timestamp - a.timestamp);
+
+      const total = allTrips.reduce((sum, t) => sum + Number(t.fare || 0), 0);
+      const pendingTotal = currentPending.reduce((sum, t) => sum + Number(t.fare || 0), 0);
+
       document.getElementById('total-fare').innerText = total.toFixed(1);
-      document.getElementById('trip-count').innerText = `共 ${trips.length} 程`;
+      document.getElementById('trip-count').innerText = `共 ${allTrips.length} 程`;
+      document.getElementById('pending-count').innerText = currentPending.length;
+      document.getElementById('pending-fare').innerText = pendingTotal.toFixed(1);
+
       const percent = Math.min(100, (total / PASS_COST) * 100);
       document.getElementById('progress-bar').style.width = `${percent}%`;
 
@@ -212,80 +532,438 @@
       }
 
       const historyEl = document.getElementById('history-list');
-      if (trips.length === 0) {
+      if (allTrips.length === 0) {
         historyEl.innerHTML = `<p class="text-xs text-gray-400 text-center py-3">本月暫無搭車紀錄</p>`;
+      } else {
+        historyEl.innerHTML = allTrips.map(t => {
+          const timeStr = new Date(t.timestamp).toLocaleString('zh-HK', {
+            timeZone: 'Asia/Hong_Kong', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+          });
+          const statusTag = t.source === 'local'
+            ? `<span class="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">本機暫存</span>`
+            : `<span class="text-[10px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded">已上雲</span>`;
+
+          return `
+            <div class="py-2.5 flex justify-between items-center gap-2">
+              <div class="space-y-0.5 min-w-0">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="font-bold text-white bg-red-600/90 px-2 py-0.5 rounded text-xs">${escapeHtml(t.route)}</span>
+                  ${statusTag}
+                  <span class="text-xs text-gray-300">${timeStr}</span>
+                </div>
+                ${t.stopName ? `<div class="text-[11px] text-gray-500 truncate">${escapeHtml(t.stopName)}</div>` : ''}
+              </div>
+              <div class="flex items-center gap-1.5 flex-shrink-0">
+                <span class="font-bold text-gray-100 mr-1">$${Number(t.fare).toFixed(1)}</span>
+                <button onclick="openEditTimeModal('${escapeHtml(t.id)}', '${t.source}', ${t.timestamp}, '${escapeHtml(t.route)}', ${t.fare})"
+                  class="bg-gray-700 hover:bg-gray-600 text-sky-300 px-2 py-1 rounded text-[11px] font-medium active:scale-95">
+                  🕒 改時間
+                </button>
+                <button onclick="openDeleteModal('${escapeHtml(t.id)}', '${t.source}', '${escapeHtml(t.route)}', ${t.fare}, ${t.timestamp})"
+                  class="bg-red-950/70 hover:bg-red-900 text-red-400 px-2 py-1 rounded text-[11px] font-medium active:scale-95">
+                  刪除
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      renderSuggestedRoutes(allTrips);
+    }
+
+    // ==========================================
+    // 4. 編輯車程時間 & 刪除確認視窗
+    // ==========================================
+    window.openEditTimeModal = (id, source, timestamp, route, fare) => {
+      editingTripTarget = { id, source };
+      const hk = getHKTimeInfo(new Date(timestamp));
+      document.getElementById('edit-trip-summary').innerText = `路線：${route}（$${Number(fare).toFixed(1)}）`;
+      document.getElementById('edit-trip-datetime').value = hk.datetimeLocal;
+      document.getElementById('edit-time-modal').classList.remove('hidden');
+    };
+
+    window.closeEditTimeModal = () => {
+      document.getElementById('edit-time-modal').classList.add('hidden');
+      editingTripTarget = null;
+    };
+
+    window.saveEditedTripTime = async () => {
+      if (!editingTripTarget) return;
+      const val = document.getElementById('edit-trip-datetime').value;
+      if (!val) return showToast("⚠️ 請選擇有效的日期與時間", true);
+
+      const newTimestamp = new Date(`${val}:00+08:00`).getTime();
+      if (isNaN(newTimestamp)) return showToast("⚠️ 時間格式不正確", true);
+
+      const newHK = getHKTimeInfo(new Date(newTimestamp));
+      const { id, source } = editingTripTarget;
+
+      try {
+        if (source === 'local') {
+          pendingTrips = pendingTrips.map(t => t.id === id ? {
+            ...t,
+            timestamp: newTimestamp,
+            dateStr: newHK.dateStr,
+            month: newHK.monthStr
+          } : t);
+          savePendingToLocal();
+        } else {
+          await updateDoc(doc(db, "trips", id), {
+            createdAt: Timestamp.fromMillis(newTimestamp),
+            month: newHK.monthStr
+          });
+        }
+        closeEditTimeModal();
+        showToast(`🕒 已更新時間為 ${newHK.month}/${newHK.day} ${String(newHK.hour).padStart(2, '0')}:${String(newHK.minute).padStart(2, '0')}`);
+      } catch (e) {
+        showToast("❌ 更新失敗：" + e.message, true);
+      }
+    };
+
+    window.openDeleteModal = (id, source, route, fare, timestamp) => {
+      deletingTripTarget = { id, source };
+      const timeStr = new Date(timestamp).toLocaleString('zh-HK', {
+        timeZone: 'Asia/Hong_Kong', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      });
+      document.getElementById('delete-trip-summary').innerText = `路線：${route}（$${Number(fare).toFixed(1)}）｜時間：${timeStr}`;
+      document.getElementById('delete-confirm-modal').classList.remove('hidden');
+    };
+
+    window.closeDeleteModal = () => {
+      document.getElementById('delete-confirm-modal').classList.add('hidden');
+      deletingTripTarget = null;
+    };
+
+    window.confirmDeleteTrip = async () => {
+      if (!deletingTripTarget) return;
+      const { id, source } = deletingTripTarget;
+      try {
+        if (source === 'local') {
+          pendingTrips = pendingTrips.filter(t => t.id !== id);
+          savePendingToLocal();
+          showToast("🗑️ 已刪除本機暫存紀錄");
+        } else {
+          await deleteDoc(doc(db, "trips", id));
+          showToast("🗑️ 已刪除雲端紀錄");
+        }
+      } catch (e) {
+        showToast("❌ 刪除失敗：" + e.message, true);
+      } finally {
+        closeDeleteModal();
+      }
+    };
+
+    // ==========================================
+    // 5. 拍卡寄存於 App 內 ＋ 凌晨 00:00 自動匯出
+    // ==========================================
+    window.logTripLocal = (route, fare, stopName = '') => {
+      const hk = getHKTimeInfo();
+      const record = {
+        id: 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        dateStr: hk.dateStr,
+        month: hk.monthStr,
+        route: route.toUpperCase(),
+        fare: Number(fare),
+        stopName,
+        timestamp: Date.now()
+      };
+      pendingTrips.unshift(record);
+      savePendingToLocal();
+      showToast(`📦 已暫存 ${record.route} (+$${record.fare})｜00:00 自動匯出`);
+    };
+
+    window.exportPendingTripsToCloud = async (isAuto = false) => {
+      if (isExporting) return;
+      if (pendingTrips.length === 0) {
+        if (!isAuto) showToast("目前沒有待匯出的暫存紀錄", true);
         return;
       }
 
-      historyEl.innerHTML = trips.map(t => {
-        const dateStr = t.createdAt ? new Date(t.createdAt.seconds * 1000).toLocaleString('zh-HK', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '剛剛';
+      isExporting = true;
+      const btn = document.getElementById('manual-export-btn');
+      if (btn) btn.innerText = "⏳ 匯出中...";
+
+      let exportedCount = 0;
+      const snapshotList = [...pendingTrips];
+
+      try {
+        for (const item of snapshotList) {
+          await addDoc(collection(db, "trips"), {
+            month: item.month,
+            route: item.route,
+            fare: Number(item.fare),
+            stopName: item.stopName || '',
+            createdAt: Timestamp.fromMillis(item.timestamp)
+          });
+          pendingTrips = pendingTrips.filter(t => t.id !== item.id);
+          localStorage.setItem(PENDING_STORAGE_KEY, JSON.stringify(pendingTrips));
+          exportedCount++;
+        }
+
+        const hk = getHKTimeInfo();
+        localStorage.setItem(LAST_EXPORT_DATE_KEY, hk.dateStr);
+        recalculateAndRenderAll();
+        showToast(`☁️ 已成功將 ${exportedCount} 程紀錄匯出至雲端`);
+      } catch (err) {
+        showToast(`⚠️ 匯出中斷 (${exportedCount} 程已上雲)：${err.message}`, true);
+        recalculateAndRenderAll();
+      } finally {
+        isExporting = false;
+        if (btn) btn.innerText = "☁️ 立即匯出";
+      }
+    };
+
+    function checkMidnightAutoExport() {
+      if (pendingTrips.length === 0) return;
+      const hk = getHKTimeInfo();
+      const lastExported = localStorage.getItem(LAST_EXPORT_DATE_KEY);
+      const isMidnightNow = (hk.hour === 0 && hk.minute === 0 && lastExported !== hk.dateStr);
+      const hasPastDayRecords = pendingTrips.some(t => t.dateStr < hk.dateStr);
+
+      if (isMidnightNow || hasPastDayRecords) {
+        exportPendingTripsToCloud(true);
+      }
+    }
+
+    setInterval(checkMidnightAutoExport, 15000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') checkMidnightAutoExport();
+    });
+
+    // ==========================================
+    // 6. 智能建議路線
+    // ==========================================
+    function renderSuggestedRoutes(allTrips = null) {
+      const section = document.getElementById('suggested-section');
+      const listEl = document.getElementById('suggested-list');
+
+      const tripsSource = allTrips || [
+        ...pendingTrips.map(t => ({ ...t, source: 'local' })),
+        ...cloudTrips
+      ];
+
+      if (tripsSource.length === 0) {
+        section.classList.add('hidden');
+        return;
+      }
+
+      const currentHour = getHKTimeInfo().hour;
+      const stats = {};
+
+      tripsSource.forEach(t => {
+        const key = t.route;
+        if (!stats[key]) {
+          stats[key] = { route: t.route, fare: t.fare, stopName: t.stopName, count: 0, score: 0, latest: 0 };
+        }
+        stats[key].count += 1;
+        const tripHour = getHKTimeInfo(new Date(t.timestamp)).hour;
+        const hourDiff = Math.min(Math.abs(currentHour - tripHour), 24 - Math.abs(currentHour - tripHour));
+        stats[key].score += (hourDiff <= 2 ? 2.5 : 1);
+
+        if (t.timestamp >= stats[key].latest) {
+          stats[key].latest = t.timestamp;
+          stats[key].fare = t.fare;
+          if (t.stopName) stats[key].stopName = t.stopName;
+        }
+      });
+
+      const topRoutes = Object.values(stats)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 4);
+
+      if (topRoutes.length === 0) {
+        section.classList.add('hidden');
+        return;
+      }
+
+      section.classList.remove('hidden');
+      listEl.innerHTML = topRoutes.map(r => `
+        <button onclick="logTripLocal('${escapeHtml(r.route)}', ${r.fare}, '${escapeHtml(r.stopName)}')"
+          class="flex-shrink-0 bg-gray-900 hover:bg-gray-700 border border-amber-500/40 rounded-xl px-3 py-2 text-left active:scale-95 transition">
+          <div class="flex items-center gap-1.5">
+            <span class="kmb-red text-white font-extrabold text-xs px-1.5 py-0.5 rounded">${escapeHtml(r.route)}</span>
+            <span class="text-xs font-bold text-amber-300">+$${Number(r.fare).toFixed(1)}</span>
+          </div>
+          <div class="text-[10px] text-gray-400 mt-1">已搭 ${r.count} 次 · 點擊記帳</div>
+        </button>
+      `).join('');
+    }
+
+    // ==========================================
+    // 7. 實時到站 ＆ 一鍵打卡（支援手動排序、定位排序及取消）
+    // ==========================================
+    window.enterMainSortMode = () => {
+      if (savedRoutes.length === 0) return showToast("⚠️ 尚未有已儲存路線", true);
+      savedRoutesBeforeSort = JSON.parse(JSON.stringify(savedRoutes));
+      routeDistPreview = {};
+      isMainSortMode = true;
+
+      const controls = document.getElementById('main-route-controls');
+      controls.innerHTML = `
+        <button onclick="sortSavedRoutesByGPS()" id="gps-sort-btn" class="text-xs bg-sky-600 hover:bg-sky-500 text-white px-2 py-1 rounded-md font-bold active:scale-95">
+          📍 定位排序
+        </button>
+        <button onclick="finishMainSortMode()" class="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-2 py-1 rounded-md font-bold active:scale-95">
+          ✓ 完成
+        </button>
+        <button onclick="cancelMainSortMode()" class="text-xs bg-gray-600 hover:bg-gray-500 text-gray-100 px-2 py-1 rounded-md font-bold active:scale-95">
+          ✕ 取消
+        </button>
+      `;
+      renderUnifiedRouteCards();
+    };
+
+    window.finishMainSortMode = () => {
+      isMainSortMode = false;
+      savedRoutesBeforeSort = null;
+      routeDistPreview = {};
+      restoreDefaultMainControls();
+      renderUnifiedRouteCards();
+      showToast("✅ 已儲存路線排序（同步 Watch）");
+    };
+
+    window.cancelMainSortMode = async () => {
+      isMainSortMode = false;
+      routeDistPreview = {};
+      restoreDefaultMainControls();
+      if (savedRoutesBeforeSort) {
+        const backup = savedRoutesBeforeSort;
+        savedRoutesBeforeSort = null;
+        await syncRoutesToCloud(backup);
+      }
+      renderUnifiedRouteCards();
+      showToast("已取消排序更改");
+    };
+
+    function restoreDefaultMainControls() {
+      const controls = document.getElementById('main-route-controls');
+      controls.innerHTML = `
+        <button onclick="enterMainSortMode()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded-md text-gray-200 active:scale-95">
+          ⇅ 排序
+        </button>
+        <button onclick="refreshAllEtas()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded-md text-gray-200 active:scale-95">
+          🔄 刷新
+        </button>
+      `;
+    }
+
+    window.sortSavedRoutesByGPS = () => {
+      if (!navigator.geolocation) return showToast("❌ 瀏覽器不支援 GPS 定位", true);
+      const gpsBtn = document.getElementById('gps-sort-btn');
+      if (gpsBtn) gpsBtn.innerText = "📡 定位中...";
+
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          lastUserCoords = { lat: latitude, lng: longitude };
+          const allStops = await getAllKmbStopsCached();
+          const stopCoordMap = {};
+          allStops.forEach(s => { stopCoordMap[s.stop] = s; });
+
+          const distMap = {};
+          const withDist = savedRoutes.map((r, originalIdx) => {
+            const st = stopCoordMap[r.stopId];
+            let dist = Infinity;
+            if (st && st.lat && st.long) {
+              dist = Math.round(getDistanceMeters(latitude, longitude, parseFloat(st.lat), parseFloat(st.long)));
+              distMap[`${r.route}_${r.stopId}_${r.dir}`] = dist;
+            }
+            return { item: r, dist, originalIdx };
+          });
+
+          withDist.sort((a, b) => (a.dist === b.dist) ? (a.originalIdx - b.originalIdx) : (a.dist - b.dist));
+          routeDistPreview = distMap;
+          const sortedList = withDist.map(x => x.item);
+
+          await syncRoutesToCloud(sortedList);
+          showToast("📍 已根據目前位置由近至遠排序");
+        } catch (e) {
+          showToast("❌ 定位排序出錯：" + e.message, true);
+        } finally {
+          if (gpsBtn) gpsBtn.innerText = "📍 定位排序";
+        }
+      }, (err) => {
+        if (gpsBtn) gpsBtn.innerText = "📍 定位排序";
+        showToast("❌ 無法取得定位：" + err.message, true);
+      }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+    };
+
+    window.moveSavedRoute = async (idx, direction) => {
+      const updated = [...savedRoutes];
+      if (direction === 'top' && idx > 0) {
+        const [item] = updated.splice(idx, 1);
+        updated.unshift(item);
+      } else if (direction === 'up' && idx > 0) {
+        [updated[idx - 1], updated[idx]] = [updated[idx], updated[idx - 1]];
+      } else if (direction === 'down' && idx < updated.length - 1) {
+        [updated[idx + 1], updated[idx]] = [updated[idx], updated[idx + 1]];
+      } else {
+        return;
+      }
+      await syncRoutesToCloud(updated);
+    };
+
+    function renderUnifiedRouteCards() {
+      const container = document.getElementById('unified-route-list');
+      if (savedRoutes.length === 0) {
+        container.innerHTML = `<p class="text-xs text-gray-400 text-center py-4">尚未儲存路線，請按右上角「定位搜站 / 管理」新增</p>`;
+        return;
+      }
+
+      container.innerHTML = savedRoutes.map((r, idx) => {
+        const cacheKey = `${r.route}_${r.stopId}_${r.dir}`;
+        const etaHtml = etaCache[cacheKey] || `<span class="text-xs text-gray-500">點擊刷新查詢</span>`;
+        const dirText = r.dir === 'I' ? '回程' : '去程';
+        const distVal = routeDistPreview[cacheKey];
+        const distBadge = (isMainSortMode && distVal !== undefined)
+          ? `<span class="text-[10px] text-sky-400 font-bold ml-1">[${distVal >= 1000 ? (distVal / 1000).toFixed(1) + 'km' : distVal + 'm'}]</span>`
+          : '';
+
+        const actionArea = isMainSortMode ? `
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button onclick="moveSavedRoute(${idx}, 'top')" ${idx === 0 ? 'disabled' : ''}
+              class="bg-gray-700 disabled:opacity-30 px-2 py-2 rounded-lg text-[11px] font-bold text-amber-300">置頂</button>
+            <button onclick="moveSavedRoute(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''}
+              class="bg-gray-700 disabled:opacity-30 px-2.5 py-2 rounded-lg text-xs font-bold text-white">▲</button>
+            <button onclick="moveSavedRoute(${idx}, 'down')" ${idx === savedRoutes.length - 1 ? 'disabled' : ''}
+              class="bg-gray-700 disabled:opacity-30 px-2.5 py-2 rounded-lg text-xs font-bold text-white">▼</button>
+          </div>
+        ` : `
+          <button onclick="logTripLocal('${escapeHtml(r.route)}', ${r.fare}, '${escapeHtml(r.stopName)}')"
+            class="flex-shrink-0 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition text-white px-3 py-2.5 rounded-xl text-right shadow">
+            <div class="text-[10px] text-emerald-100 leading-tight">💳 拍卡記錄</div>
+            <div class="text-sm font-extrabold leading-tight mt-0.5">+$${Number(r.fare).toFixed(1)}</div>
+          </button>
+        `;
+
         return `
-          <div class="py-2.5 flex justify-between items-center">
-            <div>
-              <span class="font-bold text-white bg-red-600/80 px-2 py-0.5 rounded text-xs mr-2">${t.route}</span>
-              <span class="text-xs text-gray-400">${dateStr}</span>
+          <div class="bg-gray-900/95 p-3.5 rounded-xl border ${isMainSortMode ? 'border-amber-500/50' : 'border-gray-700/80'} flex justify-between items-center gap-2">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs font-bold text-gray-500">${idx + 1}.</span>
+                <span class="kmb-red text-white font-extrabold px-2 py-0.5 rounded text-sm">${escapeHtml(r.route)}</span>
+                <span class="text-xs text-gray-200 font-medium truncate">${escapeHtml(r.stopName)}</span>
+                <span class="text-[10px] text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded flex-shrink-0">${dirText}</span>
+                ${distBadge}
+              </div>
+              <div class="mt-2 flex items-baseline gap-2 pl-4">
+                <span class="text-[11px] text-gray-400">到站：</span>
+                ${etaHtml}
+              </div>
             </div>
-            <div class="flex items-center gap-3">
-              <span class="font-semibold text-gray-200">$${Number(t.fare).toFixed(1)}</span>
-              <button onclick="deleteTrip('${t.id}')" class="text-gray-500 hover:text-red-400 text-xs">刪除</button>
-            </div>
+            ${actionArea}
           </div>
         `;
       }).join('');
     }
 
-    window.logTrip = async (route, fare) => {
-      await addDoc(collection(db, "trips"), {
-        month: CURRENT_MONTH,
-        route: route,
-        fare: Number(fare),
-        createdAt: serverTimestamp()
-      });
-      showToast(`✅ 已記 ${route} (+$${fare})`);
-    };
-
-    window.deleteTrip = async (id) => {
-      if (confirm("確定刪除此程紀錄？")) {
-        await deleteDoc(doc(db, "trips", id));
-        showToast("🗑️ 已刪除紀錄");
-      }
-    };
-
-    function renderRoutesUI() {
-      const grid = document.getElementById('quick-log-grid');
-      if (savedRoutes.length === 0) {
-        grid.innerHTML = `<p class="col-span-2 text-xs text-gray-400 text-center py-2">尚未設定路線，請按右上角新增</p>`;
-      } else {
-        grid.innerHTML = savedRoutes.map(r => `
-          <button onclick="logTrip('${r.route}', ${r.fare})" class="bg-gray-700/80 hover:bg-gray-700 active:scale-95 transition p-3 rounded-xl flex justify-between items-center border border-gray-600">
-            <div class="text-left">
-              <div class="font-extrabold text-base text-white">${r.route}</div>
-              <div class="text-[11px] text-gray-400 truncate max-w-[90px]">${r.stopName}</div>
-            </div>
-            <div class="text-sm font-bold text-red-400">+$${r.fare}</div>
-          </button>
-        `).join('');
-      }
-
-      const manageList = document.getElementById('manage-routes-list');
-      manageList.innerHTML = savedRoutes.map((r, idx) => `
-        <div class="flex justify-between items-center bg-gray-900 p-2 rounded-lg">
-          <span><b>${r.route}</b> ($${r.fare}) - ${r.stopName}</span>
-          <button onclick="removeRoute(${idx})" class="text-red-400 px-2 font-bold">刪除</button>
-        </div>
-      `).join('');
-    }
-
     window.refreshAllEtas = async () => {
-      const etaContainer = document.getElementById('eta-list');
-      if (savedRoutes.length === 0) {
-        etaContainer.innerHTML = `<p class="text-xs text-gray-400 text-center py-3">請按右上角「管理路線」新增你常搭的車站</p>`;
-        return;
-      }
-      etaContainer.innerHTML = `<p class="text-xs text-gray-400 text-center py-2">正在向九巴衛星系統查詢...</p>`;
+      if (savedRoutes.length === 0) return;
 
-      const cards = await Promise.all(savedRoutes.map(async (r) => {
-        if (!r.stopId) return '';
+      await Promise.all(savedRoutes.map(async (r) => {
+        if (!r.stopId) return;
+        const cacheKey = `${r.route}_${r.stopId}_${r.dir}`;
         try {
           const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/eta/${r.stopId}/${r.route}/1`);
           const json = await res.json();
@@ -295,64 +973,404 @@
             .slice(0, 3)
             .map(d => {
               const mins = Math.max(0, Math.round((new Date(d.eta) - now) / 60000));
-              return mins === 0 ? `<span class="text-emerald-400 font-bold">即將到達</span>` : `<span class="text-white font-bold">${mins}</span><span class="text-xs text-gray-400">分</span>`;
+              return mins === 0
+                ? `<span class="text-emerald-400 font-bold text-xs">即將到達</span>`
+                : `<span class="text-white font-bold text-sm">${mins}</span><span class="text-[11px] text-gray-400">分</span>`;
             });
 
-          return `
-            <div class="bg-gray-900/90 p-3 rounded-xl flex justify-between items-center border border-gray-700/60">
-              <div class="flex items-center gap-2">
-                <span class="kmb-red text-white font-extrabold px-2 py-0.5 rounded text-sm">${r.route}</span>
-                <span class="text-xs text-gray-300">${r.stopName}</span>
-              </div>
-              <div class="flex gap-2 items-baseline">
-                ${times.length ? times.join('<span class="text-gray-600">|</span>') : '<span class="text-xs text-gray-500">暫無班次</span>'}
-              </div>
-            </div>
-          `;
+          etaCache[cacheKey] = times.length
+            ? times.join('<span class="text-gray-600 mx-0.5">|</span>')
+            : `<span class="text-xs text-gray-500">暫無班次</span>`;
         } catch {
-          return `<div class="text-xs text-red-400">${r.route} 查詢失敗</div>`;
+          etaCache[cacheKey] = `<span class="text-xs text-red-400">查詢失敗</span>`;
         }
       }));
-      etaContainer.innerHTML = cards.join('');
+
+      renderUnifiedRouteCards();
     };
 
-    window.lookupKmbStops = async () => {
+    // ==========================================
+    // 8. GPS 即時定位：先路線 ➔ 後各站距離（展開/縮合皆含到達時間）
+    // ==========================================
+    function getDistanceMeters(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    async function getAllKmbStopsCached() {
+      const cached = JSON.parse(localStorage.getItem(STOPS_CACHE_KEY) || 'null');
+      if (cached && (Date.now() - cached.ts < 7 * 86400 * 1000) && Array.isArray(cached.data)) {
+        return cached.data;
+      }
+      const res = await fetch('https://data.etabus.gov.hk/v1/transport/kmb/stop');
+      const json = await res.json();
+      const stops = json.data || [];
+      try {
+        localStorage.setItem(STOPS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: stops }));
+      } catch { /* 容量不足略過快取 */ }
+      return stops;
+    }
+
+    function renderNearbyGroupedRoutesList() {
+      const box = document.getElementById('nearby-routes-list');
+      const routeList = Object.values(nearbyGroupedRoutes).sort((a, b) => a.minDist - b.minDist);
+
+      if (routeList.length === 0) {
+        box.innerHTML = `<p class="text-amber-400">附近車站暫無營運中路線，請改用下方手動搜尋。</p>`;
+        return;
+      }
+
+      box.innerHTML = routeList.map(g => {
+        const fareInfo = lookupOfficialFare(g.route, g.dir, g.stops[0]?.seq);
+        const fareTag = fareInfo ? `<span class="text-emerald-400 font-bold">$${fareInfo.fare.toFixed(1)}</span>` : '';
+        return `
+          <button onclick="selectNearbyRoute('${escapeHtml(g.key)}')"
+            class="w-full flex justify-between items-center bg-gray-800 hover:bg-gray-700 p-2.5 rounded-lg border border-gray-700 text-left active:scale-98">
+            <div class="min-w-0 pr-2">
+              <div class="flex items-center gap-1.5">
+                <span class="kmb-red text-white font-extrabold px-1.5 py-0.5 rounded">${escapeHtml(g.route)}</span>
+                <span class="text-gray-100 font-medium truncate">往 ${escapeHtml(g.dest)}</span>
+                ${fareTag}
+              </div>
+              <div class="text-[11px] text-gray-400 mt-0.5">
+                附近 ${g.stops.length} 個站 · 最近「${escapeHtml(g.stops[0].stopName)}」
+              </div>
+            </div>
+            <span class="text-sky-400 font-bold flex-shrink-0">最近 ${g.minDist}m ➔</span>
+          </button>
+        `;
+      }).join('');
+    }
+
+    window.findNearbyRoutes = () => {
+      const box = document.getElementById('nearby-routes-list');
+      document.getElementById('route-stops-box').classList.add('hidden');
+      currentSelectedNearbyKey = null;
+      isFullStopsExpanded = false;
+
+      if (!navigator.geolocation) {
+        box.innerHTML = `<p class="text-red-400">瀏覽器不支援 GPS 定位</p>`;
+        return;
+      }
+
+      box.innerHTML = `<p class="text-sky-300">📡 正在取得 GPS 座標並彙整附近九巴路線...</p>`;
+
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          lastUserCoords = { lat: latitude, lng: longitude };
+
+          const allStops = await getAllKmbStopsCached();
+          const nearbyStops = allStops
+            .map(s => ({
+              ...s,
+              dist: Math.round(getDistanceMeters(latitude, longitude, parseFloat(s.lat), parseFloat(s.long)))
+            }))
+            .filter(s => !isNaN(s.dist) && s.dist <= 800)
+            .sort((a, b) => a.dist - b.dist)
+            .slice(0, 14);
+
+          if (nearbyStops.length === 0) {
+            box.innerHTML = `<p class="text-amber-400">附近 800 米內搵唔到九巴站，請改用下方手動搜尋。</p>`;
+            return;
+          }
+
+          const grouped = {};
+          const now = new Date();
+
+          await Promise.all(nearbyStops.map(async (stopObj) => {
+            try {
+              const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${stopObj.stop}`);
+              const json = await res.json();
+              const stopItems = {};
+
+              (json.data || []).forEach(item => {
+                const key = `${item.route}_${item.dir}`;
+                if (!stopItems[key]) {
+                  stopItems[key] = {
+                    route: item.route,
+                    dir: item.dir,
+                    dest: item.dest_tc || '',
+                    seq: item.seq,
+                    stopId: stopObj.stop,
+                    stopName: stopObj.name_tc,
+                    dist: stopObj.dist,
+                    etas: []
+                  };
+                }
+                if (item.eta && stopItems[key].etas.length < 2) {
+                  const mins = Math.max(0, Math.round((new Date(item.eta) - now) / 60000));
+                  stopItems[key].etas.push(mins === 0 ? '即到' : `${mins}分`);
+                }
+              });
+
+              Object.entries(stopItems).forEach(([key, entry]) => {
+                if (!grouped[key]) {
+                  grouped[key] = {
+                    key,
+                    route: entry.route,
+                    dir: entry.dir,
+                    dest: entry.dest,
+                    minDist: entry.dist,
+                    stops: []
+                  };
+                }
+                grouped[key].stops.push(entry);
+                if (entry.dist < grouped[key].minDist) {
+                  grouped[key].minDist = entry.dist;
+                }
+              });
+            } catch { /* 單站逾時略過 */ }
+          }));
+
+          Object.values(grouped).forEach(g => {
+            g.stops.sort((a, b) => a.dist - b.dist);
+          });
+
+          nearbyGroupedRoutes = grouped;
+          renderNearbyGroupedRoutesList();
+        } catch (e) {
+          box.innerHTML = `<p class="text-red-400">定位彙整失敗：${e.message}</p>`;
+        }
+      }, (err) => {
+        box.innerHTML = `<p class="text-red-400">定位失敗 (${err.message})，請確認已允許 Safari 存取位置。</p>`;
+      }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+    };
+
+    window.selectNearbyRoute = (key) => {
+      const group = nearbyGroupedRoutes[key];
+      if (!group) return;
+      currentSelectedNearbyKey = key;
+      isFullStopsExpanded = false;
+      renderStep2Stops();
+    };
+
+    window.toggleFullRouteStops = () => {
+      if (!currentSelectedNearbyKey) return;
+      isFullStopsExpanded = !isFullStopsExpanded;
+      renderStep2Stops();
+    };
+
+    // 步驟 2 渲染：無論「縮合附近車站」或「展開全線車站」皆顯示實時到站時間
+    async function renderStep2Stops() {
+      const group = nearbyGroupedRoutes[currentSelectedNearbyKey];
+      if (!group) return;
+
+      const box = document.getElementById('route-stops-box');
+      const title = document.getElementById('selected-route-title');
+      const list = document.getElementById('route-stops-list');
+      const toggleBtn = document.getElementById('toggle-full-stops-btn');
+
+      box.classList.remove('hidden');
+      title.innerText = `${group.route} (往 ${group.dest})`;
+      toggleBtn.innerText = isFullStopsExpanded ? '縮合全線車站' : '展開全線車站';
+
+      if (!isFullStopsExpanded) {
+        // 縮合模式：顯示附近車站距離 + 即時刷新該線最新到站時間
+        const renderCollapsed = (etaMap = null) => {
+          list.innerHTML = group.stops.map(s => {
+            const fareInfo = lookupOfficialFare(group.route, group.dir, s.seq);
+            const fareBadge = fareInfo
+              ? `<span class="text-emerald-400 font-bold">$${fareInfo.fare.toFixed(1)}</span>`
+              : `<span class="text-gray-400">待確認</span>`;
+            const liveEtas = (etaMap && s.seq) ? (etaMap[`${group.dir}_${s.seq}`] || s.etas) : s.etas;
+            const etaBadge = liveEtas && liveEtas.length
+              ? `<span class="text-amber-300 font-bold">⏱️ ${liveEtas.join(' / ')}</span>`
+              : `<span class="text-gray-500">暫無班次</span>`;
+
+            return `
+              <div class="flex justify-between items-center bg-gray-800 p-2 rounded-lg border border-gray-700 gap-2">
+                <div class="min-w-0">
+                  <div class="text-gray-100 font-medium truncate">
+                    <span class="text-sky-400 font-bold mr-1">[${s.dist}m]</span>${s.seq ? `${s.seq}. ` : ''}${escapeHtml(s.stopName)}
+                  </div>
+                  <div class="text-[11px] text-gray-400 mt-0.5 flex items-center gap-2">
+                    <span>正價：${fareBadge}</span>
+                    <span>${etaBadge}</span>
+                  </div>
+                </div>
+                <button onclick="selectStopAndAutoFill('${s.stopId}', '${escapeHtml(s.stopName)}', '${escapeHtml(group.route)}', '${group.dir}', '${s.seq || ''}')"
+                  class="bg-emerald-600 hover:bg-emerald-500 px-2.5 py-1.5 rounded text-white font-bold flex-shrink-0">
+                  選用
+                </button>
+              </div>
+            `;
+          }).join('');
+        };
+
+        renderCollapsed();
+        const freshEtaMap = await fetchRouteEtaMapBySeq(group.route);
+        if (!isFullStopsExpanded && currentSelectedNearbyKey === group.key) {
+          renderCollapsed(freshEtaMap);
+        }
+      } else {
+        // 展開模式：載入全線所有車站距離 + 官方正價 + 實時到站時間
+        list.innerHTML = `<p class="text-gray-400">正在載入全線車站距離及實時到站時間...</p>`;
+        try {
+          const dirParam = group.dir === 'I' ? 'inbound' : 'outbound';
+          const [stopRes, allStops, etaMap] = await Promise.all([
+            fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${group.route}/${dirParam}/1`).then(r => r.json()),
+            getAllKmbStopsCached(),
+            fetchRouteEtaMapBySeq(group.route)
+          ]);
+
+          if (!isFullStopsExpanded || currentSelectedNearbyKey !== group.key) return;
+
+          const stopCoordMap = {};
+          allStops.forEach(st => { stopCoordMap[st.stop] = st; });
+
+          const rows = (stopRes.data || []).map(item => {
+            const st = stopCoordMap[item.stop] || {};
+            const nameTc = st.name_tc || item.stop;
+            let dist = null;
+            if (lastUserCoords && st.lat && st.long) {
+              dist = Math.round(getDistanceMeters(lastUserCoords.lat, lastUserCoords.lng, parseFloat(st.lat), parseFloat(st.long)));
+            }
+            const fareInfo = lookupOfficialFare(group.route, group.dir, item.seq);
+            const distTag = dist !== null
+              ? `<span class="${dist <= 800 ? 'text-sky-400 font-bold' : 'text-gray-400'} mr-1">[${dist >= 1000 ? (dist / 1000).toFixed(1) + 'km' : dist + 'm'}]</span>`
+              : '';
+            const fareTag = fareInfo
+              ? `<span class="text-emerald-400 font-bold">$${fareInfo.fare.toFixed(1)}</span>`
+              : `<span class="text-gray-400">待確認</span>`;
+            const etas = etaMap[`${group.dir}_${item.seq}`] || [];
+            const etaTag = etas.length
+              ? `<span class="text-amber-300 font-bold">⏱️ ${etas.join(' / ')}</span>`
+              : `<span class="text-gray-500">暫無班次</span>`;
+
+            return `
+              <div class="flex justify-between items-center bg-gray-800 p-2 rounded-lg border border-gray-700 gap-2">
+                <div class="min-w-0">
+                  <div class="truncate text-gray-100 font-medium">
+                    ${distTag}${item.seq}. ${escapeHtml(nameTc)}
+                  </div>
+                  <div class="text-[11px] text-gray-400 mt-0.5 flex items-center gap-2">
+                    <span>正價：${fareTag}</span>
+                    <span>${etaTag}</span>
+                  </div>
+                </div>
+                <button onclick="selectStopAndAutoFill('${item.stop}', '${escapeHtml(nameTc)}', '${escapeHtml(group.route)}', '${group.dir}', '${item.seq}')"
+                  class="bg-emerald-600 hover:bg-emerald-500 px-2.5 py-1.5 rounded text-white font-bold flex-shrink-0">
+                  選用
+                </button>
+              </div>
+            `;
+          });
+
+          list.innerHTML = rows.join('') || `<p class="text-gray-400">暫無車站資料</p>`;
+        } catch {
+          list.innerHTML = `<p class="text-red-400">載入全線車站失敗</p>`;
+        }
+      }
+    }
+
+    // 手動輸入路線號碼搜尋（同步顯示各站距離、官方正價及到達時間）
+    window.lookupKmbStopsManual = async () => {
       const route = document.getElementById('search-route-input').value.trim().toUpperCase();
       const dir = document.getElementById('search-dir-input').value;
-      const resultBox = document.getElementById('stop-lookup-results');
+      const resultBox = document.getElementById('manual-stop-results');
       if (!route) return;
 
-      resultBox.innerHTML = `<p class="text-gray-400">搜尋中...</p>`;
+      resultBox.innerHTML = `<p class="text-gray-400">正在搜尋沿途車站及到站時間...</p>`;
       try {
-        const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${route}/${dir}/1`);
+        const [res, allStops, etaMap] = await Promise.all([
+          fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${route}/${dir}/1`),
+          getAllKmbStopsCached(),
+          fetchRouteEtaMapBySeq(route)
+        ]);
         const json = await res.json();
         if (!json.data || json.data.length === 0) {
           resultBox.innerHTML = `<p class="text-red-400">搵唔到該路線資料</p>`;
           return;
         }
 
-        const stopsHtml = await Promise.all(json.data.map(async (item) => {
-          const sRes = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop/${item.stop}`);
-          const sJson = await sRes.json();
-          const nameTc = (sJson.data?.name_tc || item.stop).replace(/'/g, "");
+        const dirCode = dir === 'outbound' ? 'O' : 'I';
+        const stopMap = {};
+        allStops.forEach(s => { stopMap[s.stop] = s; });
+
+        const stopsHtml = json.data.map((item) => {
+          const st = stopMap[item.stop] || {};
+          const nameTc = (st.name_tc || item.stop).replace(/'/g, "");
+          const fareInfo = lookupOfficialFare(route, dirCode, item.seq);
+          const fareTag = fareInfo
+            ? `<span class="text-emerald-400 font-bold">$${fareInfo.fare.toFixed(1)}</span>`
+            : `<span class="text-gray-400">待確認</span>`;
+          let distTag = '';
+          if (lastUserCoords && st.lat && st.long) {
+            const d = Math.round(getDistanceMeters(lastUserCoords.lat, lastUserCoords.lng, parseFloat(st.lat), parseFloat(st.long)));
+            distTag = `<span class="text-sky-400 mr-1">[${d >= 1000 ? (d / 1000).toFixed(1) + 'km' : d + 'm'}]</span>`;
+          }
+          const etas = etaMap[`${dirCode}_${item.seq}`] || [];
+          const etaTag = etas.length
+            ? `<span class="text-amber-300 font-bold">⏱️ ${etas.join(' / ')}</span>`
+            : `<span class="text-gray-500">暫無班次</span>`;
+
           return `
-            <div class="flex justify-between items-center bg-gray-800 p-1.5 rounded border border-gray-700">
-              <span>${item.seq}. ${nameTc}</span>
-              <button onclick="fillStopId('${item.stop}', '${nameTc}', '${route}', '${dir === 'outbound' ? 'O' : 'I'}')" class="bg-blue-600 px-2 py-0.5 rounded text-white">選用</button>
+            <div class="flex justify-between items-center bg-gray-800 p-2 rounded border border-gray-700 gap-2">
+              <div class="min-w-0">
+                <div class="truncate text-gray-100 font-medium">${distTag}${item.seq}. ${escapeHtml(nameTc)}</div>
+                <div class="text-[11px] text-gray-400 mt-0.5 flex items-center gap-2">
+                  <span>正價：${fareTag}</span>
+                  <span>${etaTag}</span>
+                </div>
+              </div>
+              <button onclick="selectStopAndAutoFill('${item.stop}', '${escapeHtml(nameTc)}', '${route}', '${dirCode}', '${item.seq}')" class="bg-blue-600 hover:bg-blue-500 px-2.5 py-1 rounded text-white font-bold flex-shrink-0">選用</button>
             </div>
           `;
-        }));
+        });
         resultBox.innerHTML = stopsHtml.join('');
       } catch {
         resultBox.innerHTML = `<p class="text-red-400">查詢出錯</p>`;
       }
     };
 
-    window.fillStopId = (stopId, name, route, dir) => {
+    window.selectStopAndAutoFill = (stopId, name, route, dir, seq = '') => {
       document.getElementById('new-route').value = route;
       document.getElementById('new-stop-name').value = name;
       document.getElementById('new-stop-id').value = stopId;
       document.getElementById('new-dir').value = dir;
+      document.getElementById('new-stop-seq').value = seq;
+
+      const fareInput = document.getElementById('new-fare');
+      const sourceBadge = document.getElementById('fare-source-badge');
+
+      const official = lookupOfficialFare(route, dir, seq);
+      if (official) {
+        fareInput.value = official.fare.toFixed(1);
+        sourceBadge.className = "text-[10px] text-emerald-400 font-bold";
+        sourceBadge.innerText = `✅ 已自動填入官方${official.type}`;
+        showToast(`✅ 已選取 ${route}（官方正價 $${official.fare.toFixed(1)}）`);
+      } else {
+        const past = [...savedRoutes, ...pendingTrips, ...cloudTrips].find(x => x.route === route && x.fare);
+        if (past) {
+          fareInput.value = past.fare;
+          sourceBadge.className = "text-[10px] text-amber-400";
+          sourceBadge.innerText = "已帶入歷史紀錄車資";
+        } else {
+          fareInput.value = '';
+          sourceBadge.className = "text-[10px] text-gray-400";
+          sourceBadge.innerText = "查無官方定價，請手動輸入";
+        }
+        showToast(`已選取 ${route} (${name})`);
+      }
+    };
+
+    window.autoFillOfficialFareFromInput = () => {
+      const route = document.getElementById('new-route').value.trim().toUpperCase();
+      const dir = document.getElementById('new-dir').value;
+      const seq = document.getElementById('new-stop-seq').value;
+      const official = lookupOfficialFare(route, dir, seq);
+      const sourceBadge = document.getElementById('fare-source-badge');
+
+      if (official) {
+        document.getElementById('new-fare').value = official.fare.toFixed(1);
+        sourceBadge.className = "text-[10px] text-emerald-400 font-bold";
+        sourceBadge.innerText = `✅ 已自動填入官方${official.type}`;
+      }
     };
 
     window.addCustomRoute = async () => {
@@ -362,12 +1380,43 @@
       const stopId = document.getElementById('new-stop-id').value.trim().toUpperCase();
       const dir = document.getElementById('new-dir').value;
 
-      if (!route || isNaN(fare)) return alert("請填寫路線及車資");
+      if (!route || isNaN(fare)) return showToast("⚠️ 請填寫路線及正價收費", true);
       const updated = [...savedRoutes, { route, fare, stopName, stopId, dir }];
       await syncRoutesToCloud(updated);
-      showToast("💾 已同步路線至雲端");
+
+      document.getElementById('new-route').value = '';
+      document.getElementById('new-fare').value = '';
+      document.getElementById('new-stop-name').value = '';
+      document.getElementById('new-stop-id').value = '';
+      document.getElementById('new-stop-seq').value = '';
+      document.getElementById('fare-source-badge').innerText = '';
+
+      showToast("💾 已儲存路線並同步至手錶");
       closeSettings();
     };
+
+    function renderManageList() {
+      const manageList = document.getElementById('manage-routes-list');
+      if (savedRoutes.length === 0) {
+        manageList.innerHTML = `<p class="text-gray-500">暫無已儲存路線</p>`;
+        return;
+      }
+      manageList.innerHTML = savedRoutes.map((r, idx) => `
+        <div class="flex justify-between items-center bg-gray-900 p-2 rounded-lg border border-gray-800 gap-2">
+          <span class="truncate">
+            <b class="text-gray-400 mr-1">${idx + 1}.</b>
+            <b>${escapeHtml(r.route)}</b> ($${r.fare}) - ${escapeHtml(r.stopName)}
+          </span>
+          <div class="flex items-center gap-1 flex-shrink-0">
+            <button onclick="moveSavedRoute(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''}
+              class="bg-gray-800 disabled:opacity-30 px-2 py-1 rounded text-gray-200 font-bold">▲</button>
+            <button onclick="moveSavedRoute(${idx}, 'down')" ${idx === savedRoutes.length - 1 ? 'disabled' : ''}
+              class="bg-gray-800 disabled:opacity-30 px-2 py-1 rounded text-gray-200 font-bold">▼</button>
+            <button onclick="removeRoute(${idx})" class="text-red-400 px-2 py-1 font-bold">刪除</button>
+          </div>
+        </div>
+      `).join('');
+    }
 
     window.removeRoute = async (idx) => {
       const updated = savedRoutes.filter((_, i) => i !== idx);
@@ -375,8 +1424,17 @@
       showToast("🗑️ 已移除路線");
     };
 
-    window.openSettings = () => document.getElementById('settings-modal').classList.remove('hidden');
+    window.openSettings = () => {
+      document.getElementById('settings-modal').classList.remove('hidden');
+      initOfficialFares();
+      findNearbyRoutes();
+    };
     window.closeSettings = () => document.getElementById('settings-modal').classList.add('hidden');
+
+    // 初始化執行
+    initOfficialFares();
+    recalculateAndRenderAll();
+    checkMidnightAutoExport();
   </script>
 </body>
 </html>
