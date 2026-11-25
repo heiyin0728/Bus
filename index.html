@@ -11,12 +11,14 @@
     body { background-color: #111827; color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
     .kmb-red { background-color: #E3001B; }
     input[type="datetime-local"] { color-scheme: dark; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
 <body class="pb-24">
 
-  <!-- 固定紅色頁頂 -->
-  <header class="kmb-red px-4 pb-3.5 pt-11 shadow-lg fixed top-0 left-0 right-0 z-30 flex justify-between items-center">
+  <!-- 跟隨網頁移動的紅色頁頂 -->
+  <header class="kmb-red px-4 pb-4 pt-11 shadow-lg flex justify-between items-center">
     <div>
       <h1 class="text-xl font-bold tracking-wider">🚌 九巴月票管家</h1>
       <p class="text-xs text-red-100" id="current-month-label">載入中...</p>
@@ -27,12 +29,12 @@
   </header>
 
   <!-- 浮動提示 Toast -->
-  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-emerald-600 text-white px-4 py-2.5 rounded-full text-sm font-bold shadow-xl opacity-0 pointer-events-none transition-opacity duration-300 z-[60] whitespace-nowrap">
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-emerald-600 text-white px-4 py-2.5 rounded-full text-sm font-bold shadow-xl opacity-0 pointer-events-none transition-opacity duration-300 z-[70] whitespace-nowrap">
     ✅ 已記錄車程
   </div>
 
-  <!-- 主內容區 (預留頂部固定 Header 空間) -->
-  <main class="px-4 pt-24 max-w-md mx-auto space-y-4">
+  <!-- 主內容區 -->
+  <main class="px-4 pt-4 max-w-md mx-auto space-y-4">
 
     <!-- 1. 月票回本進度卡片 (雲端 + 本機暫存即時合計) -->
     <section class="bg-gray-800 rounded-2xl p-5 shadow-md border border-gray-700">
@@ -75,22 +77,30 @@
         <h2 class="text-sm font-bold text-amber-300">⚡ 常用建議路線 (免搜尋一鍵記帳)</h2>
         <span class="text-[11px] text-gray-400">按搭車習慣排序</span>
       </div>
-      <div id="suggested-list" class="flex gap-2 overflow-x-auto pb-1"></div>
+      <div id="suggested-list" class="flex gap-2 overflow-x-auto pb-1 no-scrollbar"></div>
     </section>
 
-    <!-- 3. 實時到站 ＆ 一鍵打卡入帳 (支援手動排序、定位排序及取消) -->
+    <!-- 3. 實時到站 ＆ 一鍵打卡入帳 (支援自訂組別、自動定位組別、手動排序) -->
     <section class="bg-gray-800 rounded-2xl p-4 shadow-md border border-gray-700">
-      <div class="flex justify-between items-center mb-3 gap-2">
+      <div class="flex justify-between items-center mb-2.5 gap-2">
         <h2 class="text-base font-bold truncate">⏱️ 實時到站 ＆ 一鍵打卡</h2>
         <div id="main-route-controls" class="flex items-center gap-1.5 flex-shrink-0">
-          <button onclick="enterMainSortMode()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded-md text-gray-200 active:scale-95">
+          <button onclick="openGroupManager()" class="text-xs bg-indigo-600/80 hover:bg-indigo-500 px-2.5 py-1 rounded-md text-white font-bold active:scale-95">
+            📁 組別
+          </button>
+          <button onclick="enterMainSortMode()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-md text-gray-200 active:scale-95">
             ⇅ 排序
           </button>
-          <button onclick="refreshAllEtas()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded-md text-gray-200 active:scale-95">
-            🔄 刷新
+          <button onclick="refreshAllEtas()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-md text-gray-200 active:scale-95">
+            🔄
           </button>
         </div>
       </div>
+
+      <!-- 自訂組別選擇列 (手動切換 / 位置自動顯示) -->
+      <div id="group-tabs-bar" class="flex items-center gap-1.5 overflow-x-auto pb-2 mb-1 no-scrollbar"></div>
+      <p id="group-auto-hint" class="text-[11px] text-sky-400 mb-2 hidden"></p>
+
       <div id="unified-route-list" class="space-y-3">
         <p class="text-xs text-gray-400 text-center py-4">尚未儲存路線，請按右上角「定位搜站 / 管理」新增</p>
       </div>
@@ -109,11 +119,11 @@
 
   </main>
 
-  <!-- 三分二大小頁面：GPS 定位搜站 & 路線管理 Modal -->
-  <div id="settings-modal" class="fixed inset-0 bg-black/80 hidden z-50 flex items-end sm:items-center justify-center">
-    <div class="bg-gray-800 rounded-t-3xl sm:rounded-2xl w-full max-w-md border-t sm:border border-gray-700 h-[67vh] max-h-[67vh] flex flex-col overflow-hidden shadow-2xl">
+  <!-- 彈出卡片 1：GPS 定位搜站 & 路線管理 Modal (點擊卡片外任何位置可關閉) -->
+  <div id="settings-modal" onclick="if(event.target===this) closeSettings()" class="fixed inset-0 bg-black/80 hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-800 rounded-2xl w-full max-w-md border border-gray-700 max-h-[84vh] flex flex-col overflow-hidden shadow-2xl">
       
-      <!-- 彈窗固定頂欄 -->
+      <!-- 卡片頂欄 -->
       <div class="flex-shrink-0 flex justify-between items-center px-4 py-3 border-b border-gray-700 bg-gray-800">
         <div>
           <h3 class="text-base font-bold">📍 附近路線搜站 ＆ 管理</h3>
@@ -125,7 +135,7 @@
         <button onclick="closeSettings()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 w-8 h-8 rounded-full text-xl font-bold flex items-center justify-center">&times;</button>
       </div>
 
-      <!-- 彈窗可捲動內容區 -->
+      <!-- 卡片可捲動內容區 -->
       <div class="flex-1 overflow-y-auto p-4 space-y-4">
 
         <!-- 步驟 1：即時定位附近九巴站（先以路線顯示） -->
@@ -178,7 +188,10 @@
             <input id="new-route" type="text" placeholder="路線 (如 63X)" oninput="autoFillOfficialFareFromInput()" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm uppercase">
             <input id="new-fare" type="number" step="0.1" placeholder="官方正價 (自動填入)" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm font-bold text-emerald-300">
           </div>
-          <input id="new-stop-name" type="text" placeholder="上車站名 (點上方車站自動填入)" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+          <div class="grid grid-cols-2 gap-2">
+            <input id="new-stop-name" type="text" placeholder="上車站名" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+            <input id="new-dest-name" type="text" placeholder="總站方向 (如 佐敦)" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+          </div>
           <div class="grid grid-cols-3 gap-2">
             <input id="new-stop-id" type="text" placeholder="16位 Stop ID" class="col-span-2 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-xs">
             <select id="new-dir" onchange="autoFillOfficialFareFromInput()" class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-2 text-xs">
@@ -196,7 +209,7 @@
         <div>
           <div class="flex justify-between items-center mb-2">
             <p class="text-xs font-bold text-gray-300">已儲存常用路線 (可上下排序)</p>
-            <span class="text-[10px] text-gray-400">同步主頁及 Watch</span>
+            <button onclick="closeSettings(); openGroupManager();" class="text-[11px] text-indigo-400 font-bold underline">管理路線組別 ➔</button>
           </div>
           <div id="manage-routes-list" class="space-y-1.5 text-xs pb-2"></div>
         </div>
@@ -205,9 +218,85 @@
     </div>
   </div>
 
-  <!-- 編輯車程時間 Modal -->
-  <div id="edit-time-modal" class="fixed inset-0 bg-black/85 hidden z-50 flex items-center justify-center p-4">
-    <div class="bg-gray-800 rounded-2xl w-full max-w-sm p-5 border border-gray-700 space-y-4">
+  <!-- 彈出卡片 2：自訂路線組別管理 Modal (點擊卡片外任何位置可關閉) -->
+  <div id="group-modal" onclick="if(event.target===this) closeGroupManager()" class="fixed inset-0 bg-black/80 hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-800 rounded-2xl w-full max-w-md border border-gray-700 max-h-[84vh] flex flex-col overflow-hidden shadow-2xl">
+      
+      <div class="flex-shrink-0 flex justify-between items-center px-4 py-3 border-b border-gray-700 bg-gray-800">
+        <div>
+          <h3 class="text-base font-bold">📁 自訂路線組別 ＆ 位置自動顯示</h3>
+          <p class="text-[11px] text-gray-400">可設定在不同地點自動顯示對應幾條路線</p>
+        </div>
+        <button onclick="closeGroupManager()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 w-8 h-8 rounded-full text-xl font-bold flex items-center justify-center">&times;</button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-4 space-y-4">
+        
+        <!-- 新增 / 編輯組別表單 -->
+        <div class="bg-gray-900 p-3.5 rounded-xl border border-indigo-500/40 space-y-3">
+          <div class="flex justify-between items-center">
+            <p id="group-form-title" class="text-xs font-bold text-indigo-400">➕ 新增自訂組別</p>
+            <button id="group-reset-btn" onclick="resetGroupForm()" class="text-[11px] text-gray-400 underline hidden">取消編輯</button>
+          </div>
+          <input type="hidden" id="edit-group-id" value="">
+
+          <div>
+            <label class="block text-[11px] text-gray-400 mb-1">1. 自訂組別名稱：</label>
+            <input id="group-name-input" type="text" placeholder="例如：屋企返工、醫院收工、元朗轉車" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
+          </div>
+
+          <!-- 自動定位觸發設定 -->
+          <div class="bg-gray-800/80 p-2.5 rounded-lg border border-gray-700 space-y-2">
+            <div class="flex justify-between items-center">
+              <span class="text-[11px] font-bold text-sky-400">2. 位置自動顯示設定 (選填)：</span>
+              <button onclick="clearGroupLocation()" class="text-[10px] text-gray-400 hover:text-red-400">清除位置</button>
+            </div>
+            <div class="grid grid-cols-2 gap-1.5">
+              <button type="button" onclick="captureCurrentGPSForGroup()" id="capture-gps-btn" class="bg-sky-600 hover:bg-sky-500 text-white py-1.5 px-2 rounded-lg text-[11px] font-bold active:scale-95">
+                📡 設為目前 GPS 位置
+              </button>
+              <select id="group-stop-preset" onchange="applyStopLocationForGroup()" class="bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-[11px] text-gray-200">
+                <option value="">或選用巴士站位置...</option>
+              </select>
+            </div>
+            <div class="flex items-center justify-between gap-2 text-[11px]">
+              <span id="group-loc-display" class="text-gray-400 truncate">未設定位置（僅限手動選擇）</span>
+              <select id="group-radius-input" class="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-[11px] text-gray-200 flex-shrink-0">
+                <option value="300">範圍 300m</option>
+                <option value="600" selected>範圍 600m</option>
+                <option value="1000">範圍 1km</option>
+                <option value="1500">範圍 1.5km</option>
+              </select>
+            </div>
+            <input type="hidden" id="group-lat" value="">
+            <input type="hidden" id="group-lng" value="">
+            <input type="hidden" id="group-loc-label" value="">
+          </div>
+
+          <!-- 勾選組別內的巴士路線 -->
+          <div>
+            <label class="block text-[11px] text-gray-400 mb-1.5">3. 勾選此組別要同時顯示的巴士路線：</label>
+            <div id="group-routes-checklist" class="max-h-36 overflow-y-auto space-y-1.5 bg-gray-800/60 p-2 rounded-lg border border-gray-700/80 text-xs"></div>
+          </div>
+
+          <button onclick="saveCustomGroup()" class="w-full bg-indigo-600 hover:bg-indigo-500 py-2.5 rounded-lg text-sm font-bold text-white active:scale-95">
+            💾 儲存組別設定
+          </button>
+        </div>
+
+        <!-- 已建立的組別列表 -->
+        <div>
+          <p class="text-xs font-bold text-gray-300 mb-2">已建立的自訂組別</p>
+          <div id="existing-groups-list" class="space-y-2 text-xs"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- 彈出卡片 3：編輯車程時間 Modal (點擊卡片外任何位置可關閉) -->
+  <div id="edit-time-modal" onclick="if(event.target===this) closeEditTimeModal()" class="fixed inset-0 bg-black/80 hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-800 rounded-2xl w-full max-w-sm p-5 border border-gray-700 space-y-4 shadow-2xl">
       <div class="flex justify-between items-center border-b border-gray-700 pb-2.5">
         <h3 class="text-base font-bold">🕒 編輯搭車時間</h3>
         <button onclick="closeEditTimeModal()" class="text-gray-400 text-2xl font-bold leading-none">&times;</button>
@@ -224,9 +313,9 @@
     </div>
   </div>
 
-  <!-- 刪除車程確認 Modal (取代 iOS PWA 易失效的原生 confirm) -->
-  <div id="delete-confirm-modal" class="fixed inset-0 bg-black/85 hidden z-50 flex items-center justify-center p-4">
-    <div class="bg-gray-800 rounded-2xl w-full max-w-sm p-5 border border-gray-700 space-y-4">
+  <!-- 彈出卡片 4：刪除車程確認 Modal (點擊卡片外任何位置可關閉) -->
+  <div id="delete-confirm-modal" onclick="if(event.target===this) closeDeleteModal()" class="fixed inset-0 bg-black/80 hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-800 rounded-2xl w-full max-w-sm p-5 border border-gray-700 space-y-4 shadow-2xl">
       <h3 class="text-base font-bold text-red-400">🗑️ 確定刪除此程紀錄？</h3>
       <p id="delete-trip-summary" class="text-xs text-gray-300"></p>
       <div class="flex gap-2 pt-1">
@@ -257,11 +346,16 @@
     const LAST_EXPORT_DATE_KEY = 'kmb_last_midnight_export';
 
     let savedRoutes = [];
+    let customGroups = []; // [{ id, name, lat, lng, radius, locationLabel, routeKeys: [] }]
+    let activeGroupFilter = 'auto'; // 'auto' | 'all' | '<groupId>'
+    let autoMatchedGroupInfo = null; // { group, dist }
+
     let savedRoutesBeforeSort = null;
-    let routeDistPreview = {}; // 排序時顯示各路線距離 (米)
+    let routeDistPreview = {};
     let cloudTrips = [];
     let pendingTrips = JSON.parse(localStorage.getItem(PENDING_STORAGE_KEY) || '[]');
     let etaCache = {};
+    let destCache = {}; // 動態補全總站名稱快取
     let isExporting = false;
     let isMainSortMode = false;
 
@@ -313,10 +407,25 @@
       }[m]));
     }
 
+    function escapeJs(str) {
+      return String(str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+
+    // 簡化站名（移除九巴尾部站位編號如 (YL215) 令方向更清晰）
+    function simplifyStopName(name) {
+      return String(name || '')
+        .replace(/\s*[\(（][A-Z]{1,3}\d{2,4}[\)）]\s*$/i, '')
+        .trim();
+    }
+
+    function getRouteKey(r) {
+      return r.id || `${r.route}_${r.stopId}_${r.dir}`;
+    }
+
     function showToast(msg, isWarning = false) {
       const toast = document.getElementById('toast');
       toast.innerText = msg;
-      toast.className = `fixed bottom-6 left-1/2 -translate-x-1/2 ${isWarning ? 'bg-amber-600' : 'bg-emerald-600'} text-white px-4 py-2.5 rounded-full text-sm font-bold shadow-xl transition-opacity duration-300 z-[60] whitespace-nowrap`;
+      toast.className = `fixed bottom-6 left-1/2 -translate-x-1/2 ${isWarning ? 'bg-amber-600' : 'bg-emerald-600'} text-white px-4 py-2.5 rounded-full text-sm font-bold shadow-xl transition-opacity duration-300 z-[70] whitespace-nowrap`;
       toast.classList.remove('opacity-0');
       setTimeout(() => toast.classList.add('opacity-0'), 2400);
     }
@@ -326,8 +435,18 @@
       recalculateAndRenderAll();
     }
 
+    // 支援 ESC 鍵關閉任何彈出卡片
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeSettings();
+        closeGroupManager();
+        closeEditTimeModal();
+        closeDeleteModal();
+      }
+    });
+
     // ==========================================
-    // 0. 九巴官方正價資料庫引擎 (支援物件解包 + KMB/LWB)
+    // 0. 九巴官方正價資料庫引擎
     // ==========================================
     function extractArrayFromTDJson(raw) {
       if (Array.isArray(raw)) return raw;
@@ -361,7 +480,6 @@
 
         routeList.forEach(r => {
           const comp = String(r.COMPANY_CODE || r.companyCode || '').toUpperCase();
-          // 涵蓋九巴 KMB、龍運 LWB 及聯營路線
           if (!comp.includes('KMB') && !comp.includes('LWB')) return;
           const rNo = String(r.ROUTE_NAMEE || r.routeNameE || '').trim().toUpperCase();
           const rId = String(r.ROUTE_ID || r.routeId || '');
@@ -379,12 +497,10 @@
         officialFareDB = { routeFares, stopFares: {}, loaded: true };
         if (statusEl) statusEl.innerText = `🟡 已載入 ${Object.keys(routeFares).length} 線正價，同步分段中...`;
 
-        // 刷新已展開的路線車資顯示
         if (Object.keys(nearbyGroupedRoutes).length > 0) renderNearbyGroupedRoutesList();
         if (currentSelectedNearbyKey) renderStep2Stops();
         autoFillOfficialFareFromInput();
 
-        // 下載分段收費表
         const rstopRes = await fetch('https://static.data.gov.hk/td/routes-fares-json/RSTOP_BUS.json');
         const rstopRaw = await rstopRes.json();
         const rstopList = extractArrayFromTDJson(rstopRaw);
@@ -413,7 +529,7 @@
             routeFares,
             stopFares
           }));
-        } catch { /* 容量不足略過持久化 */ }
+        } catch { /* 容量不足略過 */ }
 
         if (statusEl) statusEl.innerText = `🟢 官方正價庫已就緒 (${Object.keys(routeFares).length} 條線含分段)`;
         if (Object.keys(nearbyGroupedRoutes).length > 0) renderNearbyGroupedRoutesList();
@@ -439,7 +555,17 @@
       return null;
     }
 
-    // 單一 API 取得整條路線所有站序的實時到站分鐘數
+    async function fetchRouteDestTc(route, dirCode) {
+      try {
+        const dirParam = dirCode === 'I' ? 'inbound' : 'outbound';
+        const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route/${route.toUpperCase()}/${dirParam}/1`);
+        const json = await res.json();
+        return (json.data && json.data.dest_tc) ? json.data.dest_tc : '';
+      } catch {
+        return '';
+      }
+    }
+
     async function fetchRouteEtaMapBySeq(route) {
       const map = {};
       try {
@@ -455,23 +581,31 @@
             map[key].push(mins === 0 ? '即到' : `${mins}分`);
           }
         });
-      } catch { /* 忽略單次網路失敗 */ }
+      } catch { /* 忽略 */ }
       return map;
     }
 
     // ==========================================
-    // 1. 監聽雲端常用路線設定 (同步 Watch)
+    // 1. 監聽雲端常用路線與自訂組別設定 (同步 Watch)
     // ==========================================
     onSnapshot(doc(db, "settings", "user_routes"), (docSnap) => {
-      savedRoutes = (docSnap.exists() && docSnap.data().list) ? docSnap.data().list : [];
+      const data = docSnap.exists() ? docSnap.data() : {};
+      savedRoutes = Array.isArray(data.list) ? data.list : [];
+      customGroups = Array.isArray(data.groups) ? data.groups : [];
+
       renderManageList();
+      renderGroupTabs();
       renderUnifiedRouteCards();
       refreshAllEtas();
       renderSuggestedRoutes();
+      detectAutoLocationGroup(false);
     });
 
-    async function syncRoutesToCloud(newList) {
-      await setDoc(doc(db, "settings", "user_routes"), { list: newList });
+    async function syncSettingsToCloud(newList = savedRoutes, newGroups = customGroups) {
+      await setDoc(doc(db, "settings", "user_routes"), {
+        list: newList,
+        groups: newGroups
+      });
     }
 
     // ==========================================
@@ -551,15 +685,15 @@
                   ${statusTag}
                   <span class="text-xs text-gray-300">${timeStr}</span>
                 </div>
-                ${t.stopName ? `<div class="text-[11px] text-gray-500 truncate">${escapeHtml(t.stopName)}</div>` : ''}
+                ${t.stopName ? `<div class="text-[11px] text-gray-500 truncate">${escapeHtml(simplifyStopName(t.stopName))}</div>` : ''}
               </div>
               <div class="flex items-center gap-1.5 flex-shrink-0">
                 <span class="font-bold text-gray-100 mr-1">$${Number(t.fare).toFixed(1)}</span>
-                <button onclick="openEditTimeModal('${escapeHtml(t.id)}', '${t.source}', ${t.timestamp}, '${escapeHtml(t.route)}', ${t.fare})"
+                <button onclick="openEditTimeModal('${escapeJs(t.id)}', '${t.source}', ${t.timestamp}, '${escapeJs(t.route)}', ${t.fare})"
                   class="bg-gray-700 hover:bg-gray-600 text-sky-300 px-2 py-1 rounded text-[11px] font-medium active:scale-95">
                   🕒 改時間
                 </button>
-                <button onclick="openDeleteModal('${escapeHtml(t.id)}', '${t.source}', '${escapeHtml(t.route)}', ${t.fare}, ${t.timestamp})"
+                <button onclick="openDeleteModal('${escapeJs(t.id)}', '${t.source}', '${escapeJs(t.route)}', ${t.fare}, ${t.timestamp})"
                   class="bg-red-950/70 hover:bg-red-900 text-red-400 px-2 py-1 rounded text-[11px] font-medium active:scale-95">
                   刪除
                 </button>
@@ -665,7 +799,7 @@
         month: hk.monthStr,
         route: route.toUpperCase(),
         fare: Number(fare),
-        stopName,
+        stopName: simplifyStopName(stopName),
         timestamp: Date.now()
       };
       pendingTrips.unshift(record);
@@ -728,7 +862,10 @@
 
     setInterval(checkMidnightAutoExport, 15000);
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') checkMidnightAutoExport();
+      if (document.visibilityState === 'visible') {
+        checkMidnightAutoExport();
+        if (activeGroupFilter === 'auto') detectAutoLocationGroup(false);
+      }
     });
 
     // ==========================================
@@ -779,7 +916,7 @@
 
       section.classList.remove('hidden');
       listEl.innerHTML = topRoutes.map(r => `
-        <button onclick="logTripLocal('${escapeHtml(r.route)}', ${r.fare}, '${escapeHtml(r.stopName)}')"
+        <button onclick="logTripLocal('${escapeJs(r.route)}', ${r.fare}, '${escapeJs(r.stopName)}')"
           class="flex-shrink-0 bg-gray-900 hover:bg-gray-700 border border-amber-500/40 rounded-xl px-3 py-2 text-left active:scale-95 transition">
           <div class="flex items-center gap-1.5">
             <span class="kmb-red text-white font-extrabold text-xs px-1.5 py-0.5 rounded">${escapeHtml(r.route)}</span>
@@ -791,7 +928,345 @@
     }
 
     // ==========================================
-    // 7. 實時到站 ＆ 一鍵打卡（支援手動排序、定位排序及取消）
+    // 7. 自訂組別管理 ＆ 位置自動偵測切換
+    // ==========================================
+    function renderGroupTabs() {
+      const bar = document.getElementById('group-tabs-bar');
+      const hint = document.getElementById('group-auto-hint');
+
+      if (customGroups.length === 0) {
+        bar.innerHTML = `
+          <button onclick="openGroupManager()" class="text-[11px] bg-gray-900 hover:bg-gray-700 text-indigo-300 border border-indigo-500/40 px-2.5 py-1 rounded-full flex items-center gap-1">
+            ➕ 建立路線組別（可按位置自動顯示幾條線）
+          </button>
+        `;
+        hint.classList.add('hidden');
+        return;
+      }
+
+      const hasGeoGroups = customGroups.some(g => g.lat && g.lng);
+      const pills = [];
+
+      if (hasGeoGroups) {
+        const isAuto = activeGroupFilter === 'auto';
+        pills.push(`
+          <button onclick="selectGroupFilter('auto')"
+            class="flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-bold transition ${isAuto ? 'bg-sky-600 text-white shadow' : 'bg-gray-900 text-gray-300 border border-gray-700'}">
+            📍 自動定位
+          </button>
+        `);
+      }
+
+      const isAll = activeGroupFilter === 'all' || (!hasGeoGroups && activeGroupFilter === 'auto');
+      pills.push(`
+        <button onclick="selectGroupFilter('all')"
+          class="flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-bold transition ${isAll ? 'bg-red-600 text-white shadow' : 'bg-gray-900 text-gray-300 border border-gray-700'}">
+          全部 (${savedRoutes.length})
+        </button>
+      `);
+
+      customGroups.forEach(g => {
+        const isSelected = activeGroupFilter === g.id || (activeGroupFilter === 'auto' && autoMatchedGroupInfo && autoMatchedGroupInfo.group.id === g.id);
+        const geoIcon = (g.lat && g.lng) ? '📍' : '';
+        pills.push(`
+          <button onclick="selectGroupFilter('${escapeJs(g.id)}')"
+            class="flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-bold transition ${isSelected ? 'bg-indigo-600 text-white shadow' : 'bg-gray-900 text-gray-300 border border-gray-700'}">
+            ${geoIcon}${escapeHtml(g.name)} (${(g.routeKeys || []).length})
+          </button>
+        `);
+      });
+
+      bar.innerHTML = pills.join('');
+
+      if (activeGroupFilter === 'auto' && hasGeoGroups) {
+        hint.classList.remove('hidden');
+        if (autoMatchedGroupInfo) {
+          hint.innerText = `📍 目前位置自動顯示組別：「${autoMatchedGroupInfo.group.name}」(距離約 ${autoMatchedGroupInfo.dist}m)`;
+        } else {
+          hint.innerText = `📍 不在已設定組別範圍內，目前顯示全部路線`;
+        }
+      } else {
+        hint.classList.add('hidden');
+      }
+    }
+
+    window.selectGroupFilter = (filterId) => {
+      activeGroupFilter = filterId;
+      if (filterId === 'auto') {
+        detectAutoLocationGroup(true);
+      } else {
+        renderGroupTabs();
+        renderUnifiedRouteCards();
+        refreshAllEtas();
+      }
+    };
+
+    function detectAutoLocationGroup(showFeedback = false) {
+      const geoGroups = customGroups.filter(g => g.lat && g.lng);
+      if (geoGroups.length === 0) {
+        autoMatchedGroupInfo = null;
+        renderGroupTabs();
+        renderUnifiedRouteCards();
+        return;
+      }
+
+      if (!navigator.geolocation) return;
+
+      navigator.geolocation.getCurrentPosition((pos) => {
+        const { latitude, longitude } = pos.coords;
+        lastUserCoords = { lat: latitude, lng: longitude };
+
+        let bestMatch = null;
+        geoGroups.forEach(g => {
+          const dist = Math.round(getDistanceMeters(latitude, longitude, parseFloat(g.lat), parseFloat(g.lng)));
+          const radius = Number(g.radius || 600);
+          if (dist <= radius && (!bestMatch || dist < bestMatch.dist)) {
+            bestMatch = { group: g, dist };
+          }
+        });
+
+        autoMatchedGroupInfo = bestMatch;
+        renderGroupTabs();
+        renderUnifiedRouteCards();
+        if (bestMatch) {
+          refreshAllEtas();
+          if (showFeedback) showToast(`📍 已自動切換至「${bestMatch.group.name}」`);
+        } else if (showFeedback) {
+          showToast("📍 附近未配對到自動組別，顯示全部路線", true);
+        }
+      }, () => {
+        autoMatchedGroupInfo = null;
+        renderGroupTabs();
+      }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
+    }
+
+    function getDisplayedRoutesWithOriginalIndex() {
+      const indexed = savedRoutes.map((r, originalIdx) => ({ r, originalIdx }));
+      if (isMainSortMode) return indexed;
+
+      let targetGroup = null;
+      if (activeGroupFilter === 'auto') {
+        targetGroup = autoMatchedGroupInfo ? autoMatchedGroupInfo.group : null;
+      } else if (activeGroupFilter !== 'all') {
+        targetGroup = customGroups.find(g => g.id === activeGroupFilter) || null;
+      }
+
+      if (!targetGroup) return indexed;
+      const keySet = new Set(targetGroup.routeKeys || []);
+      return indexed.filter(({ r }) => keySet.has(getRouteKey(r)));
+    }
+
+    // 自訂組別彈窗控制
+    window.openGroupManager = () => {
+      resetGroupForm();
+      renderGroupChecklist([]);
+      populateGroupStopPresets();
+      renderExistingGroupsList();
+      document.getElementById('group-modal').classList.remove('hidden');
+    };
+
+    window.closeGroupManager = () => {
+      document.getElementById('group-modal').classList.add('hidden');
+    };
+
+    function populateGroupStopPresets() {
+      const sel = document.getElementById('group-stop-preset');
+      const uniqueStops = [];
+      const seen = new Set();
+      savedRoutes.forEach(r => {
+        if (r.stopId && !seen.has(r.stopId)) {
+          seen.add(r.stopId);
+          uniqueStops.push(r);
+        }
+      });
+      sel.innerHTML = `<option value="">或選用巴士站位置...</option>` + uniqueStops.map(r =>
+        `<option value="${escapeHtml(r.stopId)}">${escapeHtml(simplifyStopName(r.stopName))} (${escapeHtml(r.route)})</option>`
+      ).join('');
+    }
+
+    window.applyStopLocationForGroup = async () => {
+      const stopId = document.getElementById('group-stop-preset').value;
+      if (!stopId) return;
+      const allStops = await getAllKmbStopsCached();
+      const st = allStops.find(s => s.stop === stopId);
+      if (st && st.lat && st.long) {
+        const label = simplifyStopName(st.name_tc);
+        document.getElementById('group-lat').value = st.lat;
+        document.getElementById('group-lng').value = st.long;
+        document.getElementById('group-loc-label').value = label;
+        document.getElementById('group-loc-display').innerText = `📍 ${label}`;
+        document.getElementById('group-loc-display').className = "text-sky-400 font-bold truncate";
+      }
+    };
+
+    window.captureCurrentGPSForGroup = () => {
+      if (!navigator.geolocation) return showToast("❌ 不支援 GPS 定位", true);
+      const btn = document.getElementById('capture-gps-btn');
+      btn.innerText = "📡 定位中...";
+
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        lastUserCoords = { lat: latitude, lng: longitude };
+        let label = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+
+        try {
+          const allStops = await getAllKmbStopsCached();
+          let nearest = null;
+          allStops.forEach(s => {
+            const d = getDistanceMeters(latitude, longitude, parseFloat(s.lat), parseFloat(s.long));
+            if (!isNaN(d) && (!nearest || d < nearest.d)) nearest = { s, d };
+          });
+          if (nearest && nearest.d <= 500) {
+            label = `${simplifyStopName(nearest.s.name_tc)}附近`;
+          }
+        } catch { /* 使用座標顯示 */ }
+
+        document.getElementById('group-lat').value = latitude;
+        document.getElementById('group-lng').value = longitude;
+        document.getElementById('group-loc-label').value = label;
+        document.getElementById('group-loc-display').innerText = `📍 ${label}`;
+        document.getElementById('group-loc-display').className = "text-sky-400 font-bold truncate";
+        btn.innerText = "📡 設為目前 GPS 位置";
+        showToast(`📍 已擷取位置：${label}`);
+      }, (err) => {
+        btn.innerText = "📡 設為目前 GPS 位置";
+        showToast("❌ 定位失敗：" + err.message, true);
+      }, { enableHighAccuracy: true, timeout: 10000 });
+    };
+
+    window.clearGroupLocation = () => {
+      document.getElementById('group-lat').value = '';
+      document.getElementById('group-lng').value = '';
+      document.getElementById('group-loc-label').value = '';
+      document.getElementById('group-stop-preset').value = '';
+      document.getElementById('group-loc-display').innerText = '未設定位置（僅限手動選擇）';
+      document.getElementById('group-loc-display').className = 'text-gray-400 truncate';
+    };
+
+    function renderGroupChecklist(selectedKeys = []) {
+      const box = document.getElementById('group-routes-checklist');
+      if (savedRoutes.length === 0) {
+        box.innerHTML = `<p class="text-gray-500">請先在「定位搜站 / 管理」新增巴士路線</p>`;
+        return;
+      }
+      const set = new Set(selectedKeys);
+      box.innerHTML = savedRoutes.map(r => {
+        const key = getRouteKey(r);
+        const dest = r.dest || destCache[key] || '';
+        const destText = dest ? `往 ${escapeHtml(dest)}` : (r.dir === 'I' ? '回程' : '去程');
+        return `
+          <label class="flex items-center gap-2 p-1.5 rounded hover:bg-gray-700/70 cursor-pointer">
+            <input type="checkbox" name="group-route-chk" value="${escapeHtml(key)}" ${set.has(key) ? 'checked' : ''} class="rounded text-indigo-500">
+            <span class="kmb-red text-white font-bold px-1.5 py-0.5 rounded text-[11px]">${escapeHtml(r.route)}</span>
+            <span class="text-gray-200 truncate">${destText} · ${escapeHtml(simplifyStopName(r.stopName))}</span>
+          </label>
+        `;
+      }).join('');
+    }
+
+    window.resetGroupForm = () => {
+      document.getElementById('edit-group-id').value = '';
+      document.getElementById('group-form-title').innerText = '➕ 新增自訂組別';
+      document.getElementById('group-reset-btn').classList.add('hidden');
+      document.getElementById('group-name-input').value = '';
+      document.getElementById('group-radius-input').value = '600';
+      clearGroupLocation();
+      renderGroupChecklist([]);
+    };
+
+    window.editCustomGroup = (groupId) => {
+      const g = customGroups.find(x => x.id === groupId);
+      if (!g) return;
+      document.getElementById('edit-group-id').value = g.id;
+      document.getElementById('group-form-title').innerText = `✏️ 編輯組別：${g.name}`;
+      document.getElementById('group-reset-btn').classList.remove('hidden');
+      document.getElementById('group-name-input').value = g.name;
+      document.getElementById('group-radius-input').value = String(g.radius || 600);
+
+      if (g.lat && g.lng) {
+        document.getElementById('group-lat').value = g.lat;
+        document.getElementById('group-lng').value = g.lng;
+        document.getElementById('group-loc-label').value = g.locationLabel || '已設定位置';
+        document.getElementById('group-loc-display').innerText = `📍 ${g.locationLabel || '已設定位置'}`;
+        document.getElementById('group-loc-display').className = 'text-sky-400 font-bold truncate';
+      } else {
+        clearGroupLocation();
+      }
+      renderGroupChecklist(g.routeKeys || []);
+    };
+
+    window.saveCustomGroup = async () => {
+      const name = document.getElementById('group-name-input').value.trim();
+      if (!name) return showToast("⚠️ 請輸入組別名稱", true);
+
+      const routeKeys = Array.from(document.querySelectorAll('input[name="group-route-chk"]:checked')).map(el => el.value);
+      if (routeKeys.length === 0) return showToast("⚠️ 請至少勾選一條巴士路線", true);
+
+      const editId = document.getElementById('edit-group-id').value;
+      const lat = document.getElementById('group-lat').value;
+      const lng = document.getElementById('group-lng').value;
+      const locationLabel = document.getElementById('group-loc-label').value;
+      const radius = Number(document.getElementById('group-radius-input').value || 600);
+
+      const groupObj = {
+        id: editId || ('grp_' + Date.now()),
+        name,
+        lat: lat ? parseFloat(lat) : null,
+        lng: lng ? parseFloat(lng) : null,
+        locationLabel: locationLabel || '',
+        radius,
+        routeKeys
+      };
+
+      const updatedGroups = editId
+        ? customGroups.map(g => g.id === editId ? groupObj : g)
+        : [...customGroups, groupObj];
+
+      await syncSettingsToCloud(savedRoutes, updatedGroups);
+      activeGroupFilter = groupObj.lat ? 'auto' : groupObj.id;
+      resetGroupForm();
+      renderExistingGroupsList();
+      showToast(`💾 已儲存組別「${name}」`);
+    };
+
+    window.deleteCustomGroup = async (groupId) => {
+      const updatedGroups = customGroups.filter(g => g.id !== groupId);
+      if (activeGroupFilter === groupId) activeGroupFilter = 'auto';
+      await syncSettingsToCloud(savedRoutes, updatedGroups);
+      renderExistingGroupsList();
+      showToast("🗑️ 已刪除組別");
+    };
+
+    function renderExistingGroupsList() {
+      const listEl = document.getElementById('existing-groups-list');
+      if (customGroups.length === 0) {
+        listEl.innerHTML = `<p class="text-gray-500">尚未建立任何組別</p>`;
+        return;
+      }
+      listEl.innerHTML = customGroups.map(g => {
+        const locBadge = (g.lat && g.lng)
+          ? `<span class="text-[10px] bg-sky-500/20 text-sky-300 px-1.5 py-0.5 rounded">📍 ${escapeHtml(g.locationLabel || '自動定位')} (${g.radius}m)</span>`
+          : `<span class="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">手動切換</span>`;
+        return `
+          <div class="bg-gray-900 p-2.5 rounded-xl border border-gray-700 flex justify-between items-center gap-2">
+            <div class="min-w-0">
+              <div class="font-bold text-gray-100 flex items-center gap-1.5 flex-wrap">
+                <span>${escapeHtml(g.name)}</span>
+                ${locBadge}
+              </div>
+              <div class="text-[11px] text-gray-400 mt-0.5">包含 ${(g.routeKeys || []).length} 條路線</div>
+            </div>
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+              <button onclick="editCustomGroup('${escapeJs(g.id)}')" class="bg-gray-800 hover:bg-gray-700 text-sky-300 px-2 py-1 rounded">編輯</button>
+              <button onclick="deleteCustomGroup('${escapeJs(g.id)}')" class="text-red-400 px-2 py-1">刪除</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // ==========================================
+    // 8. 實時到站 ＆ 一鍵打卡（簡化上車站＋總站方向＋排序）
     // ==========================================
     window.enterMainSortMode = () => {
       if (savedRoutes.length === 0) return showToast("⚠️ 尚未有已儲存路線", true);
@@ -830,7 +1305,7 @@
       if (savedRoutesBeforeSort) {
         const backup = savedRoutesBeforeSort;
         savedRoutesBeforeSort = null;
-        await syncRoutesToCloud(backup);
+        await syncSettingsToCloud(backup, customGroups);
       }
       renderUnifiedRouteCards();
       showToast("已取消排序更改");
@@ -839,11 +1314,14 @@
     function restoreDefaultMainControls() {
       const controls = document.getElementById('main-route-controls');
       controls.innerHTML = `
-        <button onclick="enterMainSortMode()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded-md text-gray-200 active:scale-95">
+        <button onclick="openGroupManager()" class="text-xs bg-indigo-600/80 hover:bg-indigo-500 px-2.5 py-1 rounded-md text-white font-bold active:scale-95">
+          📁 組別
+        </button>
+        <button onclick="enterMainSortMode()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-md text-gray-200 active:scale-95">
           ⇅ 排序
         </button>
-        <button onclick="refreshAllEtas()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2.5 py-1 rounded-md text-gray-200 active:scale-95">
-          🔄 刷新
+        <button onclick="refreshAllEtas()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-md text-gray-200 active:scale-95">
+          🔄
         </button>
       `;
     }
@@ -867,7 +1345,7 @@
             let dist = Infinity;
             if (st && st.lat && st.long) {
               dist = Math.round(getDistanceMeters(latitude, longitude, parseFloat(st.lat), parseFloat(st.long)));
-              distMap[`${r.route}_${r.stopId}_${r.dir}`] = dist;
+              distMap[getRouteKey(r)] = dist;
             }
             return { item: r, dist, originalIdx };
           });
@@ -876,7 +1354,7 @@
           routeDistPreview = distMap;
           const sortedList = withDist.map(x => x.item);
 
-          await syncRoutesToCloud(sortedList);
+          await syncSettingsToCloud(sortedList, customGroups);
           showToast("📍 已根據目前位置由近至遠排序");
         } catch (e) {
           showToast("❌ 定位排序出錯：" + e.message, true);
@@ -901,7 +1379,7 @@
       } else {
         return;
       }
-      await syncRoutesToCloud(updated);
+      await syncSettingsToCloud(updated, customGroups);
     };
 
     function renderUnifiedRouteCards() {
@@ -911,26 +1389,38 @@
         return;
       }
 
-      container.innerHTML = savedRoutes.map((r, idx) => {
+      const displayList = getDisplayedRoutesWithOriginalIndex();
+      if (displayList.length === 0) {
+        container.innerHTML = `<p class="text-xs text-gray-400 text-center py-4">此組別暫無路線，請點「📁 組別」勾選路線</p>`;
+        return;
+      }
+
+      container.innerHTML = displayList.map(({ r, originalIdx }) => {
+        const key = getRouteKey(r);
         const cacheKey = `${r.route}_${r.stopId}_${r.dir}`;
         const etaHtml = etaCache[cacheKey] || `<span class="text-xs text-gray-500">點擊刷新查詢</span>`;
-        const dirText = r.dir === 'I' ? '回程' : '去程';
-        const distVal = routeDistPreview[cacheKey];
+        const cleanStop = simplifyStopName(r.stopName);
+        const destName = r.dest || destCache[cacheKey] || '';
+        const directionDisplay = destName
+          ? `往 ${escapeHtml(destName)}`
+          : (r.dir === 'I' ? '回程方向' : '去程方向');
+
+        const distVal = routeDistPreview[key];
         const distBadge = (isMainSortMode && distVal !== undefined)
           ? `<span class="text-[10px] text-sky-400 font-bold ml-1">[${distVal >= 1000 ? (distVal / 1000).toFixed(1) + 'km' : distVal + 'm'}]</span>`
           : '';
 
         const actionArea = isMainSortMode ? `
           <div class="flex items-center gap-1 flex-shrink-0">
-            <button onclick="moveSavedRoute(${idx}, 'top')" ${idx === 0 ? 'disabled' : ''}
+            <button onclick="moveSavedRoute(${originalIdx}, 'top')" ${originalIdx === 0 ? 'disabled' : ''}
               class="bg-gray-700 disabled:opacity-30 px-2 py-2 rounded-lg text-[11px] font-bold text-amber-300">置頂</button>
-            <button onclick="moveSavedRoute(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''}
+            <button onclick="moveSavedRoute(${originalIdx}, 'up')" ${originalIdx === 0 ? 'disabled' : ''}
               class="bg-gray-700 disabled:opacity-30 px-2.5 py-2 rounded-lg text-xs font-bold text-white">▲</button>
-            <button onclick="moveSavedRoute(${idx}, 'down')" ${idx === savedRoutes.length - 1 ? 'disabled' : ''}
+            <button onclick="moveSavedRoute(${originalIdx}, 'down')" ${originalIdx === savedRoutes.length - 1 ? 'disabled' : ''}
               class="bg-gray-700 disabled:opacity-30 px-2.5 py-2 rounded-lg text-xs font-bold text-white">▼</button>
           </div>
         ` : `
-          <button onclick="logTripLocal('${escapeHtml(r.route)}', ${r.fare}, '${escapeHtml(r.stopName)}')"
+          <button onclick="logTripLocal('${escapeJs(r.route)}', ${r.fare}, '${escapeJs(cleanStop)}')"
             class="flex-shrink-0 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition text-white px-3 py-2.5 rounded-xl text-right shadow">
             <div class="text-[10px] text-emerald-100 leading-tight">💳 拍卡記錄</div>
             <div class="text-sm font-extrabold leading-tight mt-0.5">+$${Number(r.fare).toFixed(1)}</div>
@@ -940,15 +1430,19 @@
         return `
           <div class="bg-gray-900/95 p-3.5 rounded-xl border ${isMainSortMode ? 'border-amber-500/50' : 'border-gray-700/80'} flex justify-between items-center gap-2">
             <div class="min-w-0 flex-1">
+              <!-- 第 1 行：路線號碼 + 往總站方向 -->
               <div class="flex items-center gap-1.5">
-                <span class="text-xs font-bold text-gray-500">${idx + 1}.</span>
-                <span class="kmb-red text-white font-extrabold px-2 py-0.5 rounded text-sm">${escapeHtml(r.route)}</span>
-                <span class="text-xs text-gray-200 font-medium truncate">${escapeHtml(r.stopName)}</span>
-                <span class="text-[10px] text-gray-500 bg-gray-800 px-1.5 py-0.5 rounded flex-shrink-0">${dirText}</span>
+                <span class="kmb-red text-white font-extrabold px-2 py-0.5 rounded text-sm flex-shrink-0">${escapeHtml(r.route)}</span>
+                <span class="text-sm text-white font-bold truncate">${directionDisplay}</span>
                 ${distBadge}
               </div>
-              <div class="mt-2 flex items-baseline gap-2 pl-4">
-                <span class="text-[11px] text-gray-400">到站：</span>
+              <!-- 第 2 行：簡化上車站名 -->
+              <div class="text-xs text-gray-300 mt-1 truncate">
+                📍 上車站：<span class="text-gray-100 font-medium">${escapeHtml(cleanStop)}</span>
+              </div>
+              <!-- 第 3 行：實時到站分鐘 -->
+              <div class="mt-1.5 flex items-baseline gap-1.5">
+                <span class="text-[11px] text-gray-400">⏱️ 到站：</span>
                 ${etaHtml}
               </div>
             </div>
@@ -968,8 +1462,21 @@
           const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/eta/${r.stopId}/${r.route}/1`);
           const json = await res.json();
           const now = new Date();
-          const times = (json.data || [])
-            .filter(d => d.dir === r.dir && d.eta)
+          const dirRows = (json.data || []).filter(d => d.dir === r.dir);
+
+          // 自動取得總站名稱以清晰顯示方向
+          if (!r.dest && !destCache[cacheKey]) {
+            const foundDest = dirRows.find(d => d.dest_tc)?.dest_tc;
+            if (foundDest) {
+              destCache[cacheKey] = foundDest;
+            } else {
+              const fallbackDest = await fetchRouteDestTc(r.route, r.dir);
+              if (fallbackDest) destCache[cacheKey] = fallbackDest;
+            }
+          }
+
+          const times = dirRows
+            .filter(d => d.eta)
             .slice(0, 3)
             .map(d => {
               const mins = Math.max(0, Math.round((new Date(d.eta) - now) / 60000));
@@ -990,7 +1497,7 @@
     };
 
     // ==========================================
-    // 8. GPS 即時定位：先路線 ➔ 後各站距離（展開/縮合皆含到達時間）
+    // 9. GPS 即時定位：先路線 ➔ 後各站距離（展開/縮合皆含到達時間）
     // ==========================================
     function getDistanceMeters(lat1, lon1, lat2, lon2) {
       const R = 6371000;
@@ -1011,7 +1518,7 @@
       const stops = json.data || [];
       try {
         localStorage.setItem(STOPS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: stops }));
-      } catch { /* 容量不足略過快取 */ }
+      } catch { /* 容量不足略過 */ }
       return stops;
     }
 
@@ -1028,7 +1535,7 @@
         const fareInfo = lookupOfficialFare(g.route, g.dir, g.stops[0]?.seq);
         const fareTag = fareInfo ? `<span class="text-emerald-400 font-bold">$${fareInfo.fare.toFixed(1)}</span>` : '';
         return `
-          <button onclick="selectNearbyRoute('${escapeHtml(g.key)}')"
+          <button onclick="selectNearbyRoute('${escapeJs(g.key)}')"
             class="w-full flex justify-between items-center bg-gray-800 hover:bg-gray-700 p-2.5 rounded-lg border border-gray-700 text-left active:scale-98">
             <div class="min-w-0 pr-2">
               <div class="flex items-center gap-1.5">
@@ -1037,7 +1544,7 @@
                 ${fareTag}
               </div>
               <div class="text-[11px] text-gray-400 mt-0.5">
-                附近 ${g.stops.length} 個站 · 最近「${escapeHtml(g.stops[0].stopName)}」
+                附近 ${g.stops.length} 個站 · 最近「${escapeHtml(simplifyStopName(g.stops[0].stopName))}」
               </div>
             </div>
             <span class="text-sky-400 font-bold flex-shrink-0">最近 ${g.minDist}m ➔</span>
@@ -1155,7 +1662,6 @@
       renderStep2Stops();
     };
 
-    // 步驟 2 渲染：無論「縮合附近車站」或「展開全線車站」皆顯示實時到站時間
     async function renderStep2Stops() {
       const group = nearbyGroupedRoutes[currentSelectedNearbyKey];
       if (!group) return;
@@ -1170,7 +1676,6 @@
       toggleBtn.innerText = isFullStopsExpanded ? '縮合全線車站' : '展開全線車站';
 
       if (!isFullStopsExpanded) {
-        // 縮合模式：顯示附近車站距離 + 即時刷新該線最新到站時間
         const renderCollapsed = (etaMap = null) => {
           list.innerHTML = group.stops.map(s => {
             const fareInfo = lookupOfficialFare(group.route, group.dir, s.seq);
@@ -1181,19 +1686,20 @@
             const etaBadge = liveEtas && liveEtas.length
               ? `<span class="text-amber-300 font-bold">⏱️ ${liveEtas.join(' / ')}</span>`
               : `<span class="text-gray-500">暫無班次</span>`;
+            const cleanName = simplifyStopName(s.stopName);
 
             return `
               <div class="flex justify-between items-center bg-gray-800 p-2 rounded-lg border border-gray-700 gap-2">
                 <div class="min-w-0">
                   <div class="text-gray-100 font-medium truncate">
-                    <span class="text-sky-400 font-bold mr-1">[${s.dist}m]</span>${s.seq ? `${s.seq}. ` : ''}${escapeHtml(s.stopName)}
+                    <span class="text-sky-400 font-bold mr-1">[${s.dist}m]</span>${s.seq ? `${s.seq}. ` : ''}${escapeHtml(cleanName)}
                   </div>
                   <div class="text-[11px] text-gray-400 mt-0.5 flex items-center gap-2">
                     <span>正價：${fareBadge}</span>
                     <span>${etaBadge}</span>
                   </div>
                 </div>
-                <button onclick="selectStopAndAutoFill('${s.stopId}', '${escapeHtml(s.stopName)}', '${escapeHtml(group.route)}', '${group.dir}', '${s.seq || ''}')"
+                <button onclick="selectStopAndAutoFill('${escapeJs(s.stopId)}', '${escapeJs(cleanName)}', '${escapeJs(group.route)}', '${group.dir}', '${s.seq || ''}', '${escapeJs(group.dest)}')"
                   class="bg-emerald-600 hover:bg-emerald-500 px-2.5 py-1.5 rounded text-white font-bold flex-shrink-0">
                   選用
                 </button>
@@ -1208,7 +1714,6 @@
           renderCollapsed(freshEtaMap);
         }
       } else {
-        // 展開模式：載入全線所有車站距離 + 官方正價 + 實時到站時間
         list.innerHTML = `<p class="text-gray-400">正在載入全線車站距離及實時到站時間...</p>`;
         try {
           const dirParam = group.dir === 'I' ? 'inbound' : 'outbound';
@@ -1225,7 +1730,7 @@
 
           const rows = (stopRes.data || []).map(item => {
             const st = stopCoordMap[item.stop] || {};
-            const nameTc = st.name_tc || item.stop;
+            const cleanName = simplifyStopName(st.name_tc || item.stop);
             let dist = null;
             if (lastUserCoords && st.lat && st.long) {
               dist = Math.round(getDistanceMeters(lastUserCoords.lat, lastUserCoords.lng, parseFloat(st.lat), parseFloat(st.long)));
@@ -1246,14 +1751,14 @@
               <div class="flex justify-between items-center bg-gray-800 p-2 rounded-lg border border-gray-700 gap-2">
                 <div class="min-w-0">
                   <div class="truncate text-gray-100 font-medium">
-                    ${distTag}${item.seq}. ${escapeHtml(nameTc)}
+                    ${distTag}${item.seq}. ${escapeHtml(cleanName)}
                   </div>
                   <div class="text-[11px] text-gray-400 mt-0.5 flex items-center gap-2">
                     <span>正價：${fareTag}</span>
                     <span>${etaTag}</span>
                   </div>
                 </div>
-                <button onclick="selectStopAndAutoFill('${item.stop}', '${escapeHtml(nameTc)}', '${escapeHtml(group.route)}', '${group.dir}', '${item.seq}')"
+                <button onclick="selectStopAndAutoFill('${escapeJs(item.stop)}', '${escapeJs(cleanName)}', '${escapeJs(group.route)}', '${group.dir}', '${item.seq}', '${escapeJs(group.dest)}')"
                   class="bg-emerald-600 hover:bg-emerald-500 px-2.5 py-1.5 rounded text-white font-bold flex-shrink-0">
                   選用
                 </button>
@@ -1268,7 +1773,6 @@
       }
     }
 
-    // 手動輸入路線號碼搜尋（同步顯示各站距離、官方正價及到達時間）
     window.lookupKmbStopsManual = async () => {
       const route = document.getElementById('search-route-input').value.trim().toUpperCase();
       const dir = document.getElementById('search-dir-input').value;
@@ -1277,10 +1781,12 @@
 
       resultBox.innerHTML = `<p class="text-gray-400">正在搜尋沿途車站及到站時間...</p>`;
       try {
-        const [res, allStops, etaMap] = await Promise.all([
+        const dirCode = dir === 'outbound' ? 'O' : 'I';
+        const [res, allStops, etaMap, destTc] = await Promise.all([
           fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${route}/${dir}/1`),
           getAllKmbStopsCached(),
-          fetchRouteEtaMapBySeq(route)
+          fetchRouteEtaMapBySeq(route),
+          fetchRouteDestTc(route, dirCode)
         ]);
         const json = await res.json();
         if (!json.data || json.data.length === 0) {
@@ -1288,13 +1794,12 @@
           return;
         }
 
-        const dirCode = dir === 'outbound' ? 'O' : 'I';
         const stopMap = {};
         allStops.forEach(s => { stopMap[s.stop] = s; });
 
         const stopsHtml = json.data.map((item) => {
           const st = stopMap[item.stop] || {};
-          const nameTc = (st.name_tc || item.stop).replace(/'/g, "");
+          const cleanName = simplifyStopName(st.name_tc || item.stop);
           const fareInfo = lookupOfficialFare(route, dirCode, item.seq);
           const fareTag = fareInfo
             ? `<span class="text-emerald-400 font-bold">$${fareInfo.fare.toFixed(1)}</span>`
@@ -1312,13 +1817,13 @@
           return `
             <div class="flex justify-between items-center bg-gray-800 p-2 rounded border border-gray-700 gap-2">
               <div class="min-w-0">
-                <div class="truncate text-gray-100 font-medium">${distTag}${item.seq}. ${escapeHtml(nameTc)}</div>
+                <div class="truncate text-gray-100 font-medium">${distTag}${item.seq}. ${escapeHtml(cleanName)}</div>
                 <div class="text-[11px] text-gray-400 mt-0.5 flex items-center gap-2">
                   <span>正價：${fareTag}</span>
                   <span>${etaTag}</span>
                 </div>
               </div>
-              <button onclick="selectStopAndAutoFill('${item.stop}', '${escapeHtml(nameTc)}', '${route}', '${dirCode}', '${item.seq}')" class="bg-blue-600 hover:bg-blue-500 px-2.5 py-1 rounded text-white font-bold flex-shrink-0">選用</button>
+              <button onclick="selectStopAndAutoFill('${escapeJs(item.stop)}', '${escapeJs(cleanName)}', '${escapeJs(route)}', '${dirCode}', '${item.seq}', '${escapeJs(destTc)}')" class="bg-blue-600 hover:bg-blue-500 px-2.5 py-1 rounded text-white font-bold flex-shrink-0">選用</button>
             </div>
           `;
         });
@@ -1328,9 +1833,10 @@
       }
     };
 
-    window.selectStopAndAutoFill = (stopId, name, route, dir, seq = '') => {
+    window.selectStopAndAutoFill = (stopId, name, route, dir, seq = '', dest = '') => {
       document.getElementById('new-route').value = route;
-      document.getElementById('new-stop-name').value = name;
+      document.getElementById('new-stop-name').value = simplifyStopName(name);
+      document.getElementById('new-dest-name').value = dest;
       document.getElementById('new-stop-id').value = stopId;
       document.getElementById('new-dir').value = dir;
       document.getElementById('new-stop-seq').value = seq;
@@ -1355,7 +1861,7 @@
           sourceBadge.className = "text-[10px] text-gray-400";
           sourceBadge.innerText = "查無官方定價，請手動輸入";
         }
-        showToast(`已選取 ${route} (${name})`);
+        showToast(`已選取 ${route} (${simplifyStopName(name)})`);
       }
     };
 
@@ -1376,17 +1882,34 @@
     window.addCustomRoute = async () => {
       const route = document.getElementById('new-route').value.trim().toUpperCase();
       const fare = parseFloat(document.getElementById('new-fare').value);
-      const stopName = document.getElementById('new-stop-name').value.trim() || '自訂車站';
+      const stopName = simplifyStopName(document.getElementById('new-stop-name').value.trim()) || '自訂車站';
+      let dest = document.getElementById('new-dest-name').value.trim();
       const stopId = document.getElementById('new-stop-id').value.trim().toUpperCase();
       const dir = document.getElementById('new-dir').value;
 
       if (!route || isNaN(fare)) return showToast("⚠️ 請填寫路線及正價收費", true);
-      const updated = [...savedRoutes, { route, fare, stopName, stopId, dir }];
-      await syncRoutesToCloud(updated);
+
+      if (!dest) {
+        dest = await fetchRouteDestTc(route, dir);
+      }
+
+      const newRouteObj = {
+        id: 'r_' + Date.now(),
+        route,
+        fare,
+        stopName,
+        dest,
+        stopId,
+        dir
+      };
+
+      const updated = [...savedRoutes, newRouteObj];
+      await syncSettingsToCloud(updated, customGroups);
 
       document.getElementById('new-route').value = '';
       document.getElementById('new-fare').value = '';
       document.getElementById('new-stop-name').value = '';
+      document.getElementById('new-dest-name').value = '';
       document.getElementById('new-stop-id').value = '';
       document.getElementById('new-stop-seq').value = '';
       document.getElementById('fare-source-badge').innerText = '';
@@ -1401,26 +1924,38 @@
         manageList.innerHTML = `<p class="text-gray-500">暫無已儲存路線</p>`;
         return;
       }
-      manageList.innerHTML = savedRoutes.map((r, idx) => `
-        <div class="flex justify-between items-center bg-gray-900 p-2 rounded-lg border border-gray-800 gap-2">
-          <span class="truncate">
-            <b class="text-gray-400 mr-1">${idx + 1}.</b>
-            <b>${escapeHtml(r.route)}</b> ($${r.fare}) - ${escapeHtml(r.stopName)}
-          </span>
-          <div class="flex items-center gap-1 flex-shrink-0">
-            <button onclick="moveSavedRoute(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''}
-              class="bg-gray-800 disabled:opacity-30 px-2 py-1 rounded text-gray-200 font-bold">▲</button>
-            <button onclick="moveSavedRoute(${idx}, 'down')" ${idx === savedRoutes.length - 1 ? 'disabled' : ''}
-              class="bg-gray-800 disabled:opacity-30 px-2 py-1 rounded text-gray-200 font-bold">▼</button>
-            <button onclick="removeRoute(${idx})" class="text-red-400 px-2 py-1 font-bold">刪除</button>
+      manageList.innerHTML = savedRoutes.map((r, idx) => {
+        const destText = r.dest ? `往 ${escapeHtml(r.dest)}` : (r.dir === 'I' ? '回程' : '去程');
+        return `
+          <div class="flex justify-between items-center bg-gray-900 p-2 rounded-lg border border-gray-800 gap-2">
+            <div class="min-w-0">
+              <div class="truncate">
+                <b class="text-gray-400 mr-1">${idx + 1}.</b>
+                <b>${escapeHtml(r.route)}</b> ${destText} <span class="text-emerald-400">($${r.fare})</span>
+              </div>
+              <div class="text-[11px] text-gray-400 truncate pl-4">上車站：${escapeHtml(simplifyStopName(r.stopName))}</div>
+            </div>
+            <div class="flex items-center gap-1 flex-shrink-0">
+              <button onclick="moveSavedRoute(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''}
+                class="bg-gray-800 disabled:opacity-30 px-2 py-1 rounded text-gray-200 font-bold">▲</button>
+              <button onclick="moveSavedRoute(${idx}, 'down')" ${idx === savedRoutes.length - 1 ? 'disabled' : ''}
+                class="bg-gray-800 disabled:opacity-30 px-2 py-1 rounded text-gray-200 font-bold">▼</button>
+              <button onclick="removeRoute(${idx})" class="text-red-400 px-2 py-1 font-bold">刪除</button>
+            </div>
           </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     window.removeRoute = async (idx) => {
-      const updated = savedRoutes.filter((_, i) => i !== idx);
-      await syncRoutesToCloud(updated);
+      const target = savedRoutes[idx];
+      const targetKey = target ? getRouteKey(target) : '';
+      const updatedRoutes = savedRoutes.filter((_, i) => i !== idx);
+      const updatedGroups = customGroups.map(g => ({
+        ...g,
+        routeKeys: (g.routeKeys || []).filter(k => k !== targetKey)
+      }));
+      await syncSettingsToCloud(updatedRoutes, updatedGroups);
       showToast("🗑️ 已移除路線");
     };
 

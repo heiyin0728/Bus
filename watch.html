@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <title>九巴 Watch</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    html, body {
+      background-color: #000000;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow-x: hidden;
+      margin: 0;
+      padding: 0;
+    }
+    .kmb-red { background-color: #E3001B; }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .live-dot { animation: pulse-dot 2s infinite; }
+  </style>
+</head>
+<body class="px-1.5 pt-1 pb-6 select-none">
+
+  <!-- 頂部狀態與組別切換列 (單行緊湊設計) -->
+  <header class="flex items-center justify-between gap-1 py-1.5 border-b border-zinc-800 mb-1.5">
+    <button onclick="cycleWatchGroup()" id="watch-group-btn"
+      class="bg-zinc-800 active:bg-zinc-700 text-sky-300 text-[11px] font-bold px-2 py-1 rounded-full truncate max-w-[92px]">
+      📍自動
+    </button>
+
+    <div class="flex items-center gap-1.5 text-[11px] tabular-nums flex-shrink-0">
+      <span id="watch-month-total" class="text-emerald-400 font-bold">$0</span>
+      <button onclick="refreshWatchEtas(true)" class="flex items-center gap-1 bg-zinc-900 px-1.5 py-0.5 rounded text-zinc-300 active:bg-zinc-700">
+        <span id="live-indicator" class="w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot"></span>
+        <span id="last-update-time">--:--</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- 拍卡成功 / 誤觸撤銷提示列 -->
+  <div id="watch-toast" class="hidden mb-1.5 bg-emerald-900/95 border border-emerald-500 rounded-lg px-2 py-1.5 flex items-center justify-between text-[11px]">
+    <span id="watch-toast-text" class="font-bold text-white truncate">✅ 已記錄</span>
+    <button onclick="undoLastWatchTrip()" id="watch-undo-btn" class="bg-black/50 text-amber-300 font-bold px-2 py-0.5 rounded ml-1 flex-shrink-0">
+      撤銷
+    </button>
+  </div>
+
+  <!-- 巴士路線列表：每條線嚴格以「單行」顯示 -->
+  <main id="watch-route-list" class="space-y-1.5">
+    <div class="text-center text-zinc-500 text-xs py-6">載入路線中...</div>
+  </main>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, query, where, onSnapshot, deleteDoc, doc, Timestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAwleOsALATtT61-J0QLq41LD3dKghD0aE",
+      authDomain: "homestocktake.firebaseapp.com",
+      projectId: "homestocktake"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const PASS_COST = 834;
+    let savedRoutes = [];
+    let customGroups = [];
+    let activeFilter = 'auto'; // 'auto' | 'all' | group.id
+    let autoMatchedGroup = null;
+    let etaMap = {}; // cacheKey -> { text, urgent, dest }
+    let lastLoggedDocId = null;
+    let toastTimer = null;
+    let isFetchingEta = false;
+
+    function getHKInfo(dateObj = new Date()) {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Hong_Kong',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+      }).formatToParts(dateObj);
+      const map = {};
+      parts.forEach(p => { map[p.type] = p.value; });
+      const hh = String(parseInt(map.hour, 10) % 24).padStart(2, '0');
+      const mm = String(parseInt(map.minute, 10)).padStart(2, '0');
+      return {
+        monthStr: `${map.year}-${map.month}`,
+        timeStr: `${hh}:${mm}`
+      };
+    }
+
+    const CURRENT_MONTH = getHKInfo().monthStr;
+
+    function escapeHtml(str) {
+      return String(str || '').replace(/[&<>"']/g, m => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[m]));
+    }
+
+    function escapeJs(str) {
+      return String(str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+    }
+
+    // 精簡總站名稱以配合 Watch 單行顯示（例如「佐敦(西九龍站)」->「佐敦」）
+    function shortDestName(dest) {
+      return String(dest || '')
+        .replace(/[\(（].*?[\)）]/g, '')
+        .replace(/總站|巴士總站|鐵路站|站/g, '')
+        .trim();
+    }
+
+    function simplifyStopName(name) {
+      return String(name || '').replace(/\s*[\(（][A-Z]{1,3}\d{2,4}[\)）]\s*$/i, '').trim();
+    }
+
+    function getRouteKey(r) {
+      return r.id || `${r.route}_${r.stopId}_${r.dir}`;
+    }
+
+    function getDistanceMeters(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    // 1. 即時監聽雲端路線與組別
+    onSnapshot(doc(db, "settings", "user_routes"), (snap) => {
+      const data = snap.exists() ? snap.data() : {};
+      savedRoutes = Array.isArray(data.list) ? data.list : [];
+      customGroups = Array.isArray(data.groups) ? data.groups : [];
+      detectWatchAutoGroup();
+      renderWatchUI();
+      refreshWatchEtas(false);
+    });
+
+    // 2. 即時監聽本月累積金額
+    const tripsQuery = query(collection(db, "trips"), where("month", "==", CURRENT_MONTH));
+    onSnapshot(tripsQuery, (snapshot) => {
+      let total = 0;
+      snapshot.forEach(d => { total += Number(d.data().fare || 0); });
+      const el = document.getElementById('watch-month-total');
+      if (total >= PASS_COST) {
+        el.innerText = `已回本 $${Math.round(total)}`;
+        el.className = "text-emerald-400 font-extrabold";
+      } else {
+        el.innerText = `$${Math.round(total)}/${PASS_COST}`;
+        el.className = "text-amber-300 font-bold";
+      }
+    });
+
+    // 3. 自動定位配對組別
+    function detectWatchAutoGroup() {
+      const geoGroups = customGroups.filter(g => g.lat && g.lng);
+      if (geoGroups.length === 0 || !navigator.geolocation) {
+        autoMatchedGroup = null;
+        return;
+      }
+      navigator.geolocation.getCurrentPosition((pos) => {
+        const { latitude, longitude } = pos.coords;
+        let best = null;
+        geoGroups.forEach(g => {
+          const d = getDistanceMeters(latitude, longitude, parseFloat(g.lat), parseFloat(g.lng));
+          if (d <= Number(g.radius || 600) && (!best || d < best.d)) {
+            best = { group: g, d };
+          }
+        });
+        autoMatchedGroup = best ? best.group : null;
+        renderWatchUI();
+      }, () => {}, { enableHighAccuracy: true, timeout: 6000, maximumAge: 30000 });
+    }
+
+    window.cycleWatchGroup = () => {
+      const hasGeo = customGroups.some(g => g.lat && g.lng);
+      const modes = [];
+      if (hasGeo) modes.push('auto');
+      modes.push('all');
+      customGroups.forEach(g => modes.push(g.id));
+
+      const idx = modes.indexOf(activeFilter);
+      activeFilter = modes[(idx + 1) % modes.length];
+      if (activeFilter === 'auto') detectWatchAutoGroup();
+      renderWatchUI();
+      refreshWatchEtas(false);
+    };
+
+    function getFilteredRoutes() {
+      if (customGroups.length === 0) return savedRoutes;
+      let targetGroup = null;
+      if (activeFilter === 'auto') {
+        targetGroup = autoMatchedGroup;
+      } else if (activeFilter !== 'all') {
+        targetGroup = customGroups.find(g => g.id === activeFilter) || null;
+      }
+      if (!targetGroup) return savedRoutes;
+      const set = new Set(targetGroup.routeKeys || []);
+      return savedRoutes.filter(r => set.has(getRouteKey(r)));
+    }
+
+    // 4. 渲染單行巴士列表
+    function renderWatchUI() {
+      const groupBtn = document.getElementById('watch-group-btn');
+      const hasGeo = customGroups.some(g => g.lat && g.lng);
+
+      if (customGroups.length === 0) {
+        groupBtn.innerText = `全部 (${savedRoutes.length})`;
+      } else if (activeFilter === 'auto' && hasGeo) {
+        groupBtn.innerText = autoMatchedGroup ? `📍${autoMatchedGroup.name}` : `📍全部`;
+      } else if (activeFilter === 'all') {
+        groupBtn.innerText = `全部 (${savedRoutes.length})`;
+      } else {
+        const g = customGroups.find(x => x.id === activeFilter);
+        groupBtn.innerText = g ? g.name : '全部';
+      }
+
+      const listEl = document.getElementById('watch-route-list');
+      const routes = getFilteredRoutes();
+
+      if (routes.length === 0) {
+        listEl.innerHTML = `<div class="text-center text-zinc-500 text-xs py-6">此組別暫無路線</div>`;
+        return;
+      }
+
+      listEl.innerHTML = routes.map(r => {
+        const cacheKey = `${r.route}_${r.stopId}_${r.dir}`;
+        const info = etaMap[cacheKey];
+        const rawDest = r.dest || (info && info.dest) || (r.dir === 'I' ? '回程' : '去程');
+        const destShort = shortDestName(rawDest);
+
+        let etaHtml = `<span class="text-zinc-500 text-[11px]">...</span>`;
+        if (info) {
+          const colorCls = info.urgent ? 'text-emerald-400' : 'text-amber-300';
+          etaHtml = `<span class="${colorCls} font-extrabold text-[12px] tabular-nums">${escapeHtml(info.text)}</span>`;
+        }
+
+        const cleanStop = simplifyStopName(r.stopName);
+
+        // 單行 Flex 容器：路線號碼 | 簡化總站 | 即時到站分鐘 | 一鍵拍卡金額按鈕
+        return `
+          <div class="flex items-center justify-between gap-1 h-10 px-1.5 rounded-xl bg-zinc-900 border border-zinc-800 whitespace-nowrap overflow-hidden">
+            <div onclick="refreshWatchEtas(true)" class="flex items-center gap-1.5 min-w-0 flex-1 h-full cursor-pointer active:opacity-70">
+              <span class="kmb-red text-white font-black text-[12px] px-1.5 py-0.5 rounded min-w-[34px] text-center flex-shrink-0">
+                ${escapeHtml(r.route)}
+              </span>
+              <span class="text-[12px] text-zinc-200 font-medium truncate min-w-0 flex-1">
+                ${escapeHtml(destShort)}
+              </span>
+              <div class="flex-shrink-0 text-right pr-0.5">
+                ${etaHtml}
+              </div>
+            </div>
+
+            <button onclick="logTripFromWatch('${escapeJs(r.route)}', ${Number(r.fare)}, '${escapeJs(cleanStop)}')"
+              class="bg-emerald-600 active:bg-emerald-500 text-white font-extrabold text-[11px] px-1.5 h-7 rounded-lg flex-shrink-0 tabular-nums shadow">
+              $${Number(r.fare).toFixed(1)}
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 5. 即時向九巴 API 更新到站時間
+    window.refreshWatchEtas = async (manual = false) => {
+      if (isFetchingEta || savedRoutes.length === 0) return;
+      isFetchingEta = true;
+
+      const indicator = document.getElementById('live-indicator');
+      indicator.className = "w-1.5 h-1.5 rounded-full bg-amber-400";
+
+      const targetRoutes = getFilteredRoutes();
+      await Promise.all(targetRoutes.map(async (r) => {
+        if (!r.stopId) return;
+        const cacheKey = `${r.route}_${r.stopId}_${r.dir}`;
+        try {
+          const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/eta/${r.stopId}/${r.route}/1`, { cache: 'no-store' });
+          const json = await res.json();
+          const now = new Date();
+          const dirRows = (json.data || []).filter(d => d.dir === r.dir);
+          const foundDest = dirRows.find(d => d.dest_tc)?.dest_tc || '';
+
+          const minsList = dirRows
+            .filter(d => d.eta)
+            .slice(0, 2)
+            .map(d => Math.max(0, Math.round((new Date(d.eta) - now) / 60000)));
+
+          if (minsList.length === 0) {
+            etaMap[cacheKey] = { text: '暫無班次', urgent: false, dest: foundDest };
+          } else {
+            const first = minsList[0];
+            const labels = minsList.map(m => m === 0 ? '即到' : `${m}`);
+            const text = minsList.length === 1
+              ? (first === 0 ? '即到' : `${first}分`)
+              : `${labels.join('·')}分`;
+            etaMap[cacheKey] = {
+              text,
+              urgent: first <= 3,
+              dest: foundDest
+            };
+          }
+        } catch {
+          if (!etaMap[cacheKey]) {
+            etaMap[cacheKey] = { text: '重試中', urgent: false, dest: '' };
+          }
+        }
+      }));
+
+      document.getElementById('last-update-time').innerText = getHKInfo().timeStr;
+      indicator.className = "w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot";
+      isFetchingEta = false;
+      renderWatchUI();
+    };
+
+    // 6. Watch 一鍵互動拍卡記錄（直接寫入雲端與 iPhone 同步 + 支援撤銷）
+    window.logTripFromWatch = async (route, fare, stopName) => {
+      try {
+        const docRef = await addDoc(collection(db, "trips"), {
+          month: CURRENT_MONTH,
+          route: route.toUpperCase(),
+          fare: Number(fare),
+          stopName: stopName || '',
+          createdAt: Timestamp.now()
+        });
+        lastLoggedDocId = docRef.id;
+        showWatchToast(`✅ 已記 ${route} +$${Number(fare).toFixed(1)}`);
+      } catch (e) {
+        showWatchToast(`❌ 失敗：${e.message}`, false);
+      }
+    };
+
+    window.undoLastWatchTrip = async () => {
+      if (!lastLoggedDocId) return;
+      const targetId = lastLoggedDocId;
+      lastLoggedDocId = null;
+      try {
+        await deleteDoc(doc(db, "trips", targetId));
+        document.getElementById('watch-toast').classList.add('hidden');
+      } catch { /* 忽略 */ }
+    };
+
+    function showWatchToast(msg, allowUndo = true) {
+      const box = document.getElementById('watch-toast');
+      document.getElementById('watch-toast-text').innerText = msg;
+      document.getElementById('watch-undo-btn').style.display = allowUndo ? 'inline-block' : 'none';
+      box.classList.remove('hidden');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        box.classList.add('hidden');
+        lastLoggedDocId = null;
+      }, 4500);
+    }
+
+    // 每 15 秒自動即時更新到站時間
+    setInterval(() => refreshWatchEtas(false), 15000);
+
+    // 每次抬起手腕喚醒畫面立即更新
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        if (activeFilter === 'auto') detectWatchAutoGroup();
+        refreshWatchEtas(false);
+      }
+    });
+  </script>
+</body>
+</html>
