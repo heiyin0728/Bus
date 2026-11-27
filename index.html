@@ -41,7 +41,7 @@
         </button>
       </div>
       <!-- 同站備選路線快速切換列 -->
-      <div id="octopus-alt-routes" class="hidden pt-1.5 border-t border-emerald-700/70 flex items-center gap-1.5 overflow-x-auto no-scrollbar"></div>
+      <div id="octopus-alt-routes" class="hidden pt-1.5 border-t border-emerald-700/70 flex items-center gap-1.5 flex-wrap"></div>
     </div>
   </div>
 
@@ -123,8 +123,8 @@
       <div id="suggested-list" class="flex gap-2 overflow-x-auto pb-1 no-scrollbar"></div>
     </section>
 
-    <!-- 3. 實時到站 ＆ 一鍵打卡入帳 (支援左右滑動切換組別、組內排序) -->
-    <section id="unified-route-section" class="bg-gray-800 rounded-2xl p-4 shadow-md border border-gray-700 select-none">
+    <!-- 3. 實時到站 ＆ 一鍵打卡入帳 (50m巴士站自動定位 + 無滑動組別列 + 組別/路線排序 + 最後開啟組別) -->
+    <section id="unified-route-section" class="bg-gray-800 rounded-2xl p-4 shadow-md border border-gray-700">
       <div class="flex justify-between items-center mb-2 gap-2">
         <h2 class="text-base font-bold truncate">⏱️ 實時到站 ＆ 一鍵打卡</h2>
         <div id="main-route-controls" class="flex items-center gap-1.5 flex-shrink-0">
@@ -134,20 +134,29 @@
           <button onclick="enterMainSortMode()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-md text-gray-200 active:scale-95">
             ⇅ 排序
           </button>
-          <button onclick="refreshAllEtas()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-md text-gray-200 active:scale-95">
+          <button onclick="manualRefreshUnifiedView()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-md text-gray-200 active:scale-95">
             🔄
           </button>
         </div>
       </div>
 
-      <!-- 自訂組別選擇列 -->
-      <div id="group-tabs-bar" class="flex items-center gap-1.5 overflow-x-auto pb-2 mb-1 no-scrollbar"></div>
-      <div class="flex justify-between items-center mb-2">
-        <p id="group-auto-hint" class="text-[11px] text-sky-400 truncate"></p>
-        <span id="swipe-hint-label" class="text-[10px] text-gray-500 flex-shrink-0 hidden">⇄ 左右滑動轉組</span>
+      <!-- 排序模式提示列（僅在排序模式顯示） -->
+      <div id="sort-mode-banner" class="hidden mb-2 bg-amber-500/15 border border-amber-500/40 rounded-lg px-2.5 py-1.5 text-[11px] text-amber-300 font-bold">
+        ⇅ 排序模式：點組別旁 ◀ ▶ 調整組別順序；點路線旁 置頂 / ▲ / ▼ 調整路線順序
       </div>
 
-      <div id="unified-route-list" class="space-y-2.5 transition-transform duration-200">
+      <!-- 自動定位 ＆ 自訂組別選擇列（已取消左右滑動，改為自動換行；已取消「全部」按鈕） -->
+      <div id="group-tabs-bar" class="flex flex-wrap items-center gap-1.5 pb-2 mb-1"></div>
+
+      <!-- 狀態與最後開啟組別提示列 -->
+      <div class="flex justify-between items-center mb-2 gap-2">
+        <p id="group-auto-hint" class="text-[11px] text-sky-400 truncate"></p>
+        <button id="recheck-stop-gps-btn" onclick="detectAutoBusStop(true)" class="hidden flex-shrink-0 text-[10px] bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 px-2 py-0.5 rounded font-bold active:scale-95">
+          📡 重新定位
+        </button>
+      </div>
+
+      <div id="unified-route-list" class="space-y-2.5">
         <p class="text-xs text-gray-400 text-center py-4">尚未儲存路線，請按右上角「定位搜站 / 管理」新增</p>
       </div>
     </section>
@@ -253,10 +262,10 @@
           </div>
         </div>
 
-        <!-- 已儲存常用路線 -->
+        <!-- 已儲存常用路線（含路線所屬組別顯示） -->
         <div>
           <div class="flex justify-between items-center mb-2">
-            <p class="text-xs font-bold text-gray-300">已儲存常用路線 (可上下排序)</p>
+            <p class="text-xs font-bold text-gray-300">已儲存常用路線 (顯示所屬組別 · 可排序)</p>
             <button onclick="closeSettings(); openGroupManager();" class="text-[11px] text-indigo-400 font-bold underline">管理路線組別 ➔</button>
           </div>
           <div id="manage-routes-list" class="space-y-1.5 text-xs pb-2"></div>
@@ -266,14 +275,14 @@
     </div>
   </div>
 
-  <!-- 彈出卡片 2：自訂路線組別管理 Modal (每200米，最多1公里) -->
+  <!-- 彈出卡片 2：自訂路線組別管理 ＆ 組別排序 Modal -->
   <div id="group-modal" onclick="if(event.target===this) closeGroupManager()" class="fixed inset-0 bg-black/80 hidden z-50 flex items-center justify-center p-4">
     <div class="bg-gray-800 rounded-2xl w-full max-w-md border border-gray-700 max-h-[84vh] flex flex-col overflow-hidden shadow-2xl">
       
       <div class="flex-shrink-0 flex justify-between items-center px-4 py-3 border-b border-gray-700 bg-gray-800">
         <div>
-          <h3 class="text-base font-bold">📁 自訂路線組別 ＆ 位置自動顯示</h3>
-          <p class="text-[11px] text-gray-400">可設定每 200 米範圍（最多 1 公里）自動切換</p>
+          <h3 class="text-base font-bold">📁 自訂路線組別 ＆ 組別排序</h3>
+          <p class="text-[11px] text-gray-400">可建立常用路線組別並調整顯示順序</p>
         </div>
         <button onclick="closeGroupManager()" class="bg-gray-700 hover:bg-gray-600 text-gray-200 w-8 h-8 rounded-full text-xl font-bold flex items-center justify-center">&times;</button>
       </div>
@@ -292,38 +301,9 @@
             <input id="group-name-input" type="text" placeholder="例如：屋企返工、醫院收工、元朗轉車" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white">
           </div>
 
-          <!-- 自動定位觸發設定 (每200米，最多1公里) -->
-          <div class="bg-gray-800/80 p-2.5 rounded-lg border border-gray-700 space-y-2">
-            <div class="flex justify-between items-center">
-              <span class="text-[11px] font-bold text-sky-400">2. 位置自動顯示設定 (選填)：</span>
-              <button onclick="clearGroupLocation()" class="text-[10px] text-gray-400 hover:text-red-400">清除位置</button>
-            </div>
-            <div class="grid grid-cols-2 gap-1.5">
-              <button type="button" onclick="captureCurrentGPSForGroup()" id="capture-gps-btn" class="bg-sky-600 hover:bg-sky-500 text-white py-1.5 px-2 rounded-lg text-[11px] font-bold active:scale-95">
-                📡 設為目前 GPS 位置
-              </button>
-              <select id="group-stop-preset" onchange="applyStopLocationForGroup()" class="bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-[11px] text-gray-200">
-                <option value="">或選用巴士站位置...</option>
-              </select>
-            </div>
-            <div class="flex items-center justify-between gap-2 text-[11px]">
-              <span id="group-loc-display" class="text-gray-400 truncate">未設定位置（僅限手動/滑動選擇）</span>
-              <select id="group-radius-input" class="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-[11px] text-gray-200 flex-shrink-0">
-                <option value="200">範圍 200m</option>
-                <option value="400" selected>範圍 400m</option>
-                <option value="600">範圍 600m</option>
-                <option value="800">範圍 800m</option>
-                <option value="1000">範圍 1000m (1km)</option>
-              </select>
-            </div>
-            <input type="hidden" id="group-lat" value="">
-            <input type="hidden" id="group-lng" value="">
-            <input type="hidden" id="group-loc-label" value="">
-          </div>
-
           <div>
-            <label class="block text-[11px] text-gray-400 mb-1.5">3. 勾選此組別要同時顯示的巴士路線：</label>
-            <div id="group-routes-checklist" class="max-h-36 overflow-y-auto space-y-1.5 bg-gray-800/60 p-2 rounded-lg border border-gray-700/80 text-xs"></div>
+            <label class="block text-[11px] text-gray-400 mb-1.5">2. 勾選此組別要同時顯示的巴士路線：</label>
+            <div id="group-routes-checklist" class="max-h-40 overflow-y-auto space-y-1.5 bg-gray-800/60 p-2 rounded-lg border border-gray-700/80 text-xs"></div>
           </div>
 
           <button onclick="saveCustomGroup()" class="w-full bg-indigo-600 hover:bg-indigo-500 py-2.5 rounded-lg text-sm font-bold text-white active:scale-95">
@@ -332,7 +312,10 @@
         </div>
 
         <div>
-          <p class="text-xs font-bold text-gray-300 mb-2">已建立的自訂組別</p>
+          <div class="flex justify-between items-center mb-2">
+            <p class="text-xs font-bold text-gray-300">已建立的自訂組別 (可上下排序)</p>
+            <span class="text-[10px] text-gray-400">順序同步主頁分頁列</span>
+          </div>
           <div id="existing-groups-list" class="space-y-2 text-xs"></div>
         </div>
 
@@ -409,6 +392,7 @@
 
     const PASS_COST = 834;
     const REBATE_PASS_COST = 722.7;
+    const AUTO_STOP_RADIUS_METERS = 50;
     const OFFLINE_QUEUE_KEY = 'kmb_offline_queue_v2';
     const ROUTES_LOCAL_CACHE_KEY = 'kmb_saved_routes_cache_v2';
     const TRIPS_LOCAL_CACHE_KEY = 'kmb_trips_cache_v1';
@@ -417,12 +401,17 @@
     const STOPS_CACHE_KEY = 'kmb_all_stops_cache_v1';
     const ROUTE_FARES_CACHE_KEY = 'kmb_route_fares_only_v3';
     const STOP_FARES_CACHE_KEY = 'kmb_stop_fares_only_v3';
+    const LAST_ACTIVE_GROUP_KEY = 'kmb_last_active_group_v1';
+    const LAST_OPENED_NAMED_GROUP_KEY = 'kmb_last_opened_named_group_v1';
 
     let savedRoutes = [];
     let customGroups = [];
     let passPurchaseDate = localStorage.getItem(PASS_PURCHASE_DATE_KEY) || '';
-    let activeGroupFilter = 'auto'; // 'auto' | 'all' | '<groupId>'
-    let autoMatchedGroupInfo = null;
+    let hasLocalGroupPref = localStorage.getItem(LAST_ACTIVE_GROUP_KEY) !== null;
+    let activeGroupFilter = localStorage.getItem(LAST_ACTIVE_GROUP_KEY) || 'auto'; // 'auto' | 'none' | '<groupId>'
+    let lastOpenedNamedGroupId = localStorage.getItem(LAST_OPENED_NAMED_GROUP_KEY) || '';
+    let autoMatchedStopInfo = null; // { stopObj, dist, rawRoutes: [] }
+    let isDetectingAutoStop = false;
 
     let backupBeforeSort = null;
     let routeDistPreview = {};
@@ -433,6 +422,7 @@
     let etaCache = {};
     let destCache = {};
     let isMainSortMode = false;
+    let restoreAutoFilterAfterSort = false;
     let isHistoryExpanded = true;
 
     // 定位與選線暫存狀態
@@ -472,6 +462,19 @@
     // 編輯時間 & 刪除目標
     let editingTripTarget = null;
     let deletingTripTarget = null;
+
+    function persistActiveGroupChoice(filterId) {
+      hasLocalGroupPref = true;
+      localStorage.setItem(LAST_ACTIVE_GROUP_KEY, filterId);
+      if (filterId && filterId !== 'auto' && filterId !== 'none') {
+        lastOpenedNamedGroupId = filterId;
+        localStorage.setItem(LAST_OPENED_NAMED_GROUP_KEY, filterId);
+      }
+      setDoc(doc(db, "settings", "user_routes"), {
+        lastActiveGroup: filterId,
+        ...(filterId && filterId !== 'auto' && filterId !== 'none' ? { lastOpenedNamedGroupId: filterId } : {})
+      }, { merge: true }).catch(() => {});
+    }
 
     function getHKTimeInfo(dateObj = new Date()) {
       const parts = new Intl.DateTimeFormat('en-US', {
@@ -729,6 +732,7 @@
         if (statusEl) statusEl.innerText = `🟢 官方正價庫已就緒 (${Object.keys(routeFares).length} 條線)`;
         if (Object.keys(nearbyGroupedRoutes).length > 0) renderNearbyGroupedRoutesList();
         if (currentSelectedNearbyKey) renderStep2Stops();
+        if (activeGroupFilter === 'auto' && autoMatchedStopInfo) renderUnifiedRouteCards();
         autoFillOfficialFareFromInput();
 
       } catch {
@@ -769,6 +773,7 @@
           if (statusEl) statusEl.innerText = `🟢 官方正價庫已就緒 (${Object.keys(officialFareDB.routeFares).length} 條線含分段)`;
           if (Object.keys(nearbyGroupedRoutes).length > 0) renderNearbyGroupedRoutesList();
           if (currentSelectedNearbyKey) renderStep2Stops();
+          if (activeGroupFilter === 'auto' && autoMatchedStopInfo) renderUnifiedRouteCards();
           autoFillOfficialFareFromInput();
         }
       } catch { /* 略過 */ }
@@ -820,7 +825,7 @@
     }
 
     // ==========================================
-    // 1. 監聽雲端常用路線、組別與月票購買日設定 (同步 Watch)
+    // 1. 監聽雲端常用路線、組別、月票購買日與最後開啟組別設定 (同步 Watch)
     // ==========================================
     onSnapshot(doc(db, "settings", "user_routes"), (docSnap) => {
       const data = docSnap.exists() ? docSnap.data() : {};
@@ -833,6 +838,23 @@
         ensureTripsSubscription(true);
       }
 
+      if (!hasLocalGroupPref && data.lastActiveGroup) {
+        activeGroupFilter = data.lastActiveGroup;
+        localStorage.setItem(LAST_ACTIVE_GROUP_KEY, activeGroupFilter);
+      }
+      if (!lastOpenedNamedGroupId && data.lastOpenedNamedGroupId) {
+        lastOpenedNamedGroupId = data.lastOpenedNamedGroupId;
+        localStorage.setItem(LAST_OPENED_NAMED_GROUP_KEY, lastOpenedNamedGroupId);
+      }
+
+      // 若最後開啟的組別已被刪除，安全退回自動定位
+      if (activeGroupFilter !== 'auto' && activeGroupFilter !== 'none') {
+        if (!customGroups.some(g => g.id === activeGroupFilter)) {
+          activeGroupFilter = 'auto';
+          localStorage.setItem(LAST_ACTIVE_GROUP_KEY, 'auto');
+        }
+      }
+
       try {
         localStorage.setItem(ROUTES_LOCAL_CACHE_KEY, JSON.stringify({ list: savedRoutes, groups: customGroups }));
       } catch { /* 略過 */ }
@@ -843,15 +865,19 @@
       renderUnifiedRouteCards();
       refreshAllEtas();
       recalculateAndRenderAll();
-      detectAutoLocationGroup(false);
+      if (activeGroupFilter === 'auto') {
+        detectAutoBusStop(false);
+      }
     });
 
     async function syncSettingsToCloud(newList = savedRoutes, newGroups = customGroups, newPurchaseDate = passPurchaseDate) {
       const payload = {
         list: newList,
-        groups: newGroups
+        groups: newGroups,
+        lastActiveGroup: activeGroupFilter
       };
       if (newPurchaseDate) payload.passPurchaseDate = newPurchaseDate;
+      if (lastOpenedNamedGroupId) payload.lastOpenedNamedGroupId = lastOpenedNamedGroupId;
       await setDoc(doc(db, "settings", "user_routes"), payload, { merge: true });
     }
 
@@ -1133,19 +1159,19 @@
       return byRoute;
     }
 
-    function resolveFareFromRecords(routeNo, matchedSavedItem, histStatsMap) {
-      // 1. 優先使用「已儲存路線」內的收費
+    function resolveFareFromRecords(routeNo, matchedSavedItem, histStatsMap, dir = 'O', seq = null) {
       if (matchedSavedItem && Number(matchedSavedItem.fare) > 0) {
         return Number(matchedSavedItem.fare);
       }
-      // 2. 其次使用「歷史乘搭儲存紀錄」內的收費
       const cleanR = String(routeNo || '').toUpperCase();
+      const official = lookupOfficialFare(cleanR, dir, seq);
+      if (official && Number(official.fare) > 0) {
+        return Number(official.fare);
+      }
       if (histStatsMap[cleanR] && Number(histStatsMap[cleanR].fare) > 0) {
         return Number(histStatsMap[cleanR].fare);
       }
-      // 3. 最後查詢官方正價庫
-      const official = lookupOfficialFare(cleanR);
-      return official ? Number(official.fare) : 0;
+      return 0;
     }
 
     async function handleOctopusBusZeroAutoTap() {
@@ -1166,7 +1192,6 @@
       detailEl.innerText = '⏳ 正在根據定位、附近車站及儲存紀錄推算路線...';
       altBox.classList.add('hidden');
 
-      // 步驟 A：0ms 立即在 Web 與雲端建立紀錄（鎖定拍卡時間）
       const histStats = lookupHistoricalRouteStats();
       const initialGuess = savedRoutes[0] || null;
       const instantRec = await createInstantTripRecord({
@@ -1176,7 +1201,6 @@
       });
       lastOctopusRecord = instantRec;
 
-      // 步驟 B：取得定位並結合「附近巴士站 + 實時到站 + 儲存紀錄」推算
       let userCoords = null;
       try {
         const pos = await new Promise((resolve, reject) => {
@@ -1201,7 +1225,6 @@
         const stopCoordMap = {};
         allStops.forEach(s => { stopCoordMap[s.stop] = s; });
 
-        // 找出目前 GPS 附近 400m 內的巴士站並查詢是否有巴士即將到達
         const activeArrivingRoutesAtStop = new Set();
         let nearbyStops = [];
         if (userCoords) {
@@ -1235,21 +1258,6 @@
           }));
         }
 
-        // 找出目前定位命中的自訂組別路線
-        const geoGroupRouteKeys = new Set();
-        if (userCoords) {
-          customGroups.forEach(g => {
-            if (g.lat && g.lng) {
-              const d = getDistanceMeters(userCoords.lat, userCoords.lng, parseFloat(g.lat), parseFloat(g.lng));
-              const radius = Math.min(1000, Math.max(200, Number(g.radius || 400)));
-              if (d <= radius) {
-                (g.routeKeys || []).forEach(k => geoGroupRouteKeys.add(k));
-              }
-            }
-          });
-        }
-
-        // 1. 評分「已儲存路線」
         savedRoutes.forEach(r => {
           const rNo = String(r.route || '').toUpperCase();
           const st = stopCoordMap[r.stopId];
@@ -1260,17 +1268,12 @@
           let score = 0;
           let reason = '';
 
-          if (dist <= 120) { score += 110; reason = `📍距站 ${dist}m`; }
-          else if (dist <= 250) { score += 85; reason = `📍距站 ${dist}m`; }
-          else if (dist <= 450) { score += 55; reason = `📍距站 ${dist}m`; }
-          else if (dist <= 750) { score += 25; reason = `📍距站 ${dist}m`; }
+          if (dist <= 50) { score += 130; reason = `📍距站 ${dist}m`; }
+          else if (dist <= 150) { score += 95; reason = `📍距站 ${dist}m`; }
+          else if (dist <= 300) { score += 65; reason = `📍距站 ${dist}m`; }
+          else if (dist <= 600) { score += 30; reason = `📍距站 ${dist}m`; }
 
-          if (geoGroupRouteKeys.has(getRouteKey(r))) {
-            score += 35;
-            if (!reason) reason = '📁定位組別';
-          }
-
-          if (activeArrivingRoutesAtStop.has(`${rNo}_${r.stopId}`) || (dist <= 450 && activeArrivingRoutesAtStop.has(rNo))) {
+          if (activeArrivingRoutesAtStop.has(`${rNo}_${r.stopId}`) || (dist <= 300 && activeArrivingRoutesAtStop.has(rNo))) {
             score += 30;
           }
 
@@ -1285,7 +1288,7 @@
 
           candidates.push({
             route: rNo,
-            fare: resolveFareFromRecords(rNo, r, histStats),
+            fare: resolveFareFromRecords(rNo, r, histStats, r.dir),
             stopName: simplifyStopName(r.stopName),
             dist,
             score,
@@ -1293,10 +1296,9 @@
           });
         });
 
-        // 2. 補充：附近 250m 車站內有歷史乘搭紀錄（但未加入常用清單）的路線
         if (nearbyStops.length > 0) {
           const existingSavedNos = new Set(savedRoutes.map(x => String(x.route || '').toUpperCase()));
-          nearbyStops.filter(st => st.dist <= 250).forEach(st => {
+          nearbyStops.filter(st => st.dist <= 150).forEach(st => {
             Object.values(histStats).forEach(h => {
               if (!existingSavedNos.has(h.route) && activeArrivingRoutesAtStop.has(h.route)) {
                 candidates.push({
@@ -1304,7 +1306,7 @@
                   fare: resolveFareFromRecords(h.route, null, histStats),
                   stopName: simplifyStopName(st.name_tc || h.stopName),
                   dist: st.dist,
-                  score: 65 + Math.min(30, h.hourMatchCount * 8) + Math.min(15, h.totalCount * 2),
+                  score: 70 + Math.min(30, h.hourMatchCount * 8) + Math.min(15, h.totalCount * 2),
                   reason: `📍附近站(${st.dist}m)＋歷史紀錄`
                 });
               }
@@ -1313,7 +1315,6 @@
         }
       } catch { /* 若離線無車站表則直接依歷史紀錄與常用路線排序 */ }
 
-      // 若完全無候選，從歷史常搭時段或第一條常用路線保底
       if (candidates.length === 0) {
         const histSorted = Object.values(histStats).sort((a, b) => (b.hourMatchCount - a.hourMatchCount) || (b.totalCount - a.totalCount));
         if (histSorted.length > 0) {
@@ -1338,7 +1339,6 @@
 
       const best = candidates[0];
 
-      // 步驟 C：更新剛建立的紀錄為最終推算路線與儲存收費
       await updateExistingTripRecord(lastOctopusRecord, {
         route: best.route,
         fare: best.fare,
@@ -1348,7 +1348,6 @@
       titleEl.innerText = `🐙 八達通巴士 $0 自動入帳（${best.reason}）`;
       detailEl.innerText = `${best.route}${best.stopName ? `（${best.stopName}）` : ''} +$${Number(best.fare).toFixed(1)}`;
 
-      // 若同站/附近還有其他高分候選路線，顯示快速切換按鈕
       const alts = candidates.slice(1, 4).filter(c => c.route !== best.route || c.stopName !== best.stopName);
       if (alts.length > 0) {
         altBox.classList.remove('hidden');
@@ -1531,22 +1530,10 @@
     }
 
     // ==========================================
-    // 8. 自訂組別管理、左右滑動切換、組內獨立排序
+    // 8. 巴士站 50m 自動定位、無滑動組別篩選、組別/路線排序 ＆ 最後開啟組別
     // ==========================================
-    function getGroupFilterOrderList() {
-      const hasGeoGroups = customGroups.some(g => g.lat && g.lng);
-      const list = [];
-      if (hasGeoGroups) list.push('auto');
-      list.push('all');
-      customGroups.forEach(g => list.push(g.id));
-      return list;
-    }
-
     function getActiveTargetGroup() {
-      if (activeGroupFilter === 'auto') {
-        return autoMatchedGroupInfo ? autoMatchedGroupInfo.group : null;
-      }
-      if (activeGroupFilter !== 'all') {
+      if (activeGroupFilter && activeGroupFilter !== 'auto' && activeGroupFilter !== 'none') {
         return customGroups.find(g => g.id === activeGroupFilter) || null;
       }
       return null;
@@ -1555,165 +1542,334 @@
     function renderGroupTabs() {
       const bar = document.getElementById('group-tabs-bar');
       const hint = document.getElementById('group-auto-hint');
-      const swipeHint = document.getElementById('swipe-hint-label');
+      const recheckBtn = document.getElementById('recheck-stop-gps-btn');
 
-      if (customGroups.length === 0) {
-        bar.innerHTML = `
-          <button onclick="openGroupManager()" class="text-[11px] bg-gray-900 hover:bg-gray-700 text-indigo-300 border border-indigo-500/40 px-2.5 py-1 rounded-full flex items-center gap-1">
-            ➕ 建立路線組別（支援每 200m–1km 自動切換）
-          </button>
-        `;
-        hint.innerText = '';
-        swipeHint.classList.add('hidden');
-        return;
-      }
-
-      swipeHint.classList.remove('hidden');
-      const hasGeoGroups = customGroups.some(g => g.lat && g.lng);
       const pills = [];
 
-      if (hasGeoGroups) {
-        const isAuto = activeGroupFilter === 'auto';
-        pills.push(`
-          <button data-tab-id="auto" onclick="selectGroupFilter('auto')"
-            class="flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-bold transition ${isAuto ? 'bg-sky-600 text-white shadow' : 'bg-gray-900 text-gray-300 border border-gray-700'}">
-            📍 自動定位
-          </button>
-        `);
-      }
-
-      const isAll = activeGroupFilter === 'all' || (!hasGeoGroups && activeGroupFilter === 'auto');
+      // 1. 自動定位按鈕（進入巴士站 50m 範圍顯示該站全站路線到站時間；未進入 50m 顯示全部）
+      const isAuto = activeGroupFilter === 'auto';
       pills.push(`
-        <button data-tab-id="all" onclick="selectGroupFilter('all')"
-          class="flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-bold transition ${isAll ? 'bg-red-600 text-white shadow' : 'bg-gray-900 text-gray-300 border border-gray-700'}">
-          全部 (${savedRoutes.length})
+        <button data-tab-id="auto" onclick="selectGroupFilter('auto')"
+          class="px-2.5 py-1 rounded-full text-xs font-bold transition ${isAuto ? 'bg-sky-600 text-white ring-2 ring-sky-400/50 shadow' : 'bg-gray-900 text-gray-300 border border-gray-700 hover:bg-gray-800'}">
+          📍 自動定位
         </button>
       `);
 
-      customGroups.forEach(g => {
-        const isSelected = activeGroupFilter === g.id || (activeGroupFilter === 'auto' && autoMatchedGroupInfo && autoMatchedGroupInfo.group.id === g.id);
-        const geoIcon = (g.lat && g.lng) ? '📍' : '';
+      // 2. 自訂組別按鈕（無左右滑動，自動換行；已取消「全部」按鈕；點擊已選取組別可取消選取並顯示全部）
+      customGroups.forEach((g, idx) => {
+        const isSelected = activeGroupFilter === g.id;
+        if (isMainSortMode) {
+          pills.push(`
+            <div data-tab-id="${escapeHtml(g.id)}"
+              class="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold border ${isSelected ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-gray-900 border-amber-500/50 text-gray-200'}">
+              <button onclick="moveCustomGroup(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''} class="disabled:opacity-30 text-amber-300 px-1 active:scale-90" title="左移">◀</button>
+              <span onclick="selectGroupFilter('${escapeJs(g.id)}')" class="cursor-pointer">${escapeHtml(g.name)}</span>
+              <button onclick="moveCustomGroup(${idx}, 'down')" ${idx === customGroups.length - 1 ? 'disabled' : ''} class="disabled:opacity-30 text-amber-300 px-1 active:scale-90" title="右移">▶</button>
+            </div>
+          `);
+        } else {
+          pills.push(`
+            <button data-tab-id="${escapeHtml(g.id)}" onclick="selectGroupFilter('${escapeJs(g.id)}')"
+              class="px-2.5 py-1 rounded-full text-xs font-bold transition ${isSelected ? 'bg-indigo-600 text-white ring-2 ring-indigo-400/60 shadow' : 'bg-gray-900 text-gray-300 border border-gray-700 hover:bg-gray-800'}">
+              ${escapeHtml(g.name)} (${(g.routeKeys || []).length})
+            </button>
+          `);
+        }
+      });
+
+      if (customGroups.length === 0) {
         pills.push(`
-          <button data-tab-id="${escapeHtml(g.id)}" onclick="selectGroupFilter('${escapeJs(g.id)}')"
-            class="flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-bold transition ${isSelected ? 'bg-indigo-600 text-white shadow' : 'bg-gray-900 text-gray-300 border border-gray-700'}">
-            ${geoIcon}${escapeHtml(g.name)} (${(g.routeKeys || []).length})
+          <button onclick="openGroupManager()" class="text-[11px] bg-gray-900 hover:bg-gray-700 text-indigo-300 border border-indigo-500/40 px-2.5 py-1 rounded-full">
+            ➕ 新增組別
           </button>
         `);
-      });
+      }
 
       bar.innerHTML = pills.join('');
 
-      const activeTabEl = bar.querySelector(`[data-tab-id="${CSS.escape(activeGroupFilter)}"]`);
-      if (activeTabEl) {
-        activeTabEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
-      }
+      const lastNamedGroup = lastOpenedNamedGroupId
+        ? customGroups.find(g => g.id === lastOpenedNamedGroupId)
+        : null;
 
-      if (activeGroupFilter === 'auto' && hasGeoGroups) {
-        if (autoMatchedGroupInfo) {
-          hint.innerText = `📍 自動配對：「${autoMatchedGroupInfo.group.name}」(${autoMatchedGroupInfo.dist}m)`;
+      if (activeGroupFilter === 'auto') {
+        recheckBtn.classList.remove('hidden');
+        if (isDetectingAutoStop && !autoMatchedStopInfo) {
+          hint.innerText = `📡 正在偵測 50m 範圍內巴士站...`;
+        } else if (autoMatchedStopInfo) {
+          const stopTitle = simplifyStopName(autoMatchedStopInfo.stopObj.name_tc);
+          hint.innerText = `📍 已進入「${stopTitle}」(${autoMatchedStopInfo.dist}m) · 全站 ${autoMatchedStopInfo.rawRoutes.length} 條線`;
         } else {
-          hint.innerText = `📍 未進入設定範圍，顯示全部路線`;
+          hint.innerText = `📍 自動定位（未進入 50m 範圍 · 顯示全部已存路線）`;
         }
       } else {
+        recheckBtn.classList.add('hidden');
         const tg = getActiveTargetGroup();
-        hint.innerText = tg ? `📁 組別：${tg.name}` : `📋 顯示全部已存路線`;
+        if (tg) {
+          hint.innerText = `📂 最後開啟組別：${tg.name}（再點一次取消選取）`;
+        } else {
+          hint.innerText = lastNamedGroup
+            ? `📋 未選擇組別 · 顯示全部（上次開啟組別：${lastNamedGroup.name}）`
+            : `📋 未選擇組別 · 顯示全部已存路線`;
+        }
       }
     }
 
-    window.selectGroupFilter = (filterId, slideDir = 0) => {
-      if (isMainSortMode) {
+    window.selectGroupFilter = (filterId) => {
+      if (isMainSortMode && filterId === 'auto') {
         isMainSortMode = false;
+        restoreAutoFilterAfterSort = false;
         backupBeforeSort = null;
         routeDistPreview = {};
+        document.getElementById('sort-mode-banner').classList.add('hidden');
         restoreDefaultMainControls();
       }
 
-      activeGroupFilter = filterId;
-      if (slideDir !== 0) {
-        const listEl = document.getElementById('unified-route-list');
-        listEl.style.transform = `translateX(${slideDir > 0 ? '-14px' : '14px'})`;
-        setTimeout(() => { listEl.style.transform = 'translateX(0)'; }, 140);
-      }
-
+      // 點擊「📍 自動定位」：若未啟用則進入巴士站定位；若已啟用則取消選取並顯示全部
       if (filterId === 'auto') {
-        detectAutoLocationGroup(false);
-      } else {
-        renderGroupTabs();
-        renderUnifiedRouteCards();
-        refreshAllEtas();
-      }
-    };
-
-    (function setupUnifiedSwipeGesture() {
-      const section = document.getElementById('unified-route-section');
-      let startX = 0;
-      let startY = 0;
-
-      section.addEventListener('touchstart', (e) => {
-        if (e.touches.length !== 1) return;
-        startX = e.touches[0].clientX;
-        startY = e.touches[0].clientY;
-      }, { passive: true });
-
-      section.addEventListener('touchend', (e) => {
-        if (isMainSortMode || customGroups.length === 0) return;
-        const endX = e.changedTouches[0].clientX;
-        const endY = e.changedTouches[0].clientY;
-        const dx = endX - startX;
-        const dy = endY - startY;
-
-        if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-          const order = getGroupFilterOrderList();
-          const curIdx = order.indexOf(activeGroupFilter);
-          if (curIdx === -1) return;
-
-          if (dx < 0 && curIdx < order.length - 1) {
-            selectGroupFilter(order[curIdx + 1], 1);
-          } else if (dx > 0 && curIdx > 0) {
-            selectGroupFilter(order[curIdx - 1], -1);
-          }
+        if (activeGroupFilter === 'auto') {
+          activeGroupFilter = 'none';
+          autoMatchedStopInfo = null;
+          persistActiveGroupChoice('none');
+          renderGroupTabs();
+          renderUnifiedRouteCards();
+          refreshAllEtas();
+          return;
         }
-      }, { passive: true });
-    })();
-
-    function detectAutoLocationGroup(showFeedback = false) {
-      const geoGroups = customGroups.filter(g => g.lat && g.lng);
-      if (geoGroups.length === 0) {
-        autoMatchedGroupInfo = null;
-        renderGroupTabs();
-        renderUnifiedRouteCards();
+        activeGroupFilter = 'auto';
+        persistActiveGroupChoice('auto');
+        detectAutoBusStop(true);
         return;
       }
 
-      if (!navigator.geolocation) return;
-
-      navigator.geolocation.getCurrentPosition((pos) => {
-        const { latitude, longitude } = pos.coords;
-        lastUserCoords = { lat: latitude, lng: longitude };
-        try {
-          localStorage.setItem(LAST_GPS_CACHE_KEY, JSON.stringify(lastUserCoords));
-        } catch { /* 略過 */ }
-
-        let bestMatch = null;
-        geoGroups.forEach(g => {
-          const dist = Math.round(getDistanceMeters(latitude, longitude, parseFloat(g.lat), parseFloat(g.lng)));
-          const radius = Math.min(1000, Math.max(200, Number(g.radius || 400)));
-          if (dist <= radius && (!bestMatch || dist < bestMatch.dist)) {
-            bestMatch = { group: g, dist };
-          }
-        });
-
-        autoMatchedGroupInfo = bestMatch;
+      // 若點擊目前已選取的組別，則取消選取（改為 'none'，顯示全部已存路線）
+      if (activeGroupFilter === filterId) {
+        activeGroupFilter = 'none';
+        autoMatchedStopInfo = null;
+        persistActiveGroupChoice('none');
         renderGroupTabs();
         renderUnifiedRouteCards();
-        if (bestMatch) {
-          refreshAllEtas();
-          if (showFeedback) showToast(`📍 已自動切換至「${bestMatch.group.name}」`);
+        refreshAllEtas();
+        return;
+      }
+
+      activeGroupFilter = filterId;
+      autoMatchedStopInfo = null;
+      persistActiveGroupChoice(filterId);
+      renderGroupTabs();
+      renderUnifiedRouteCards();
+      refreshAllEtas();
+    };
+
+    window.manualRefreshUnifiedView = async () => {
+      if (activeGroupFilter === 'auto') {
+        await detectAutoBusStop(true);
+      } else {
+        await refreshAllEtas();
+        showToast("🔄 已刷新實時到站時間");
+      }
+    };
+
+    // 偵測 50m 範圍內巴士站，並取得該站全站路線實時到站時間
+    window.detectAutoBusStop = async (showFeedback = false) => {
+      if (activeGroupFilter !== 'auto') return;
+
+      if (!navigator.geolocation) {
+        autoMatchedStopInfo = null;
+        renderGroupTabs();
+        renderUnifiedRouteCards();
+        if (showFeedback) showToast("❌ 瀏覽器不支援 GPS 定位", true);
+        return;
+      }
+
+      isDetectingAutoStop = true;
+      renderGroupTabs();
+
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          lastUserCoords = { lat: latitude, lng: longitude };
+          try {
+            localStorage.setItem(LAST_GPS_CACHE_KEY, JSON.stringify(lastUserCoords));
+          } catch { /* 略過 */ }
+
+          const allStops = await getAllKmbStopsCached();
+          const stopsWithin50m = allStops
+            .map(s => ({
+              stopObj: s,
+              dist: Math.round(getDistanceMeters(latitude, longitude, parseFloat(s.lat), parseFloat(s.long)))
+            }))
+            .filter(item => !isNaN(item.dist) && item.dist <= AUTO_STOP_RADIUS_METERS)
+            .sort((a, b) => a.dist - b.dist);
+
+          if (stopsWithin50m.length === 0) {
+            isDetectingAutoStop = false;
+            autoMatchedStopInfo = null;
+            renderGroupTabs();
+            renderUnifiedRouteCards();
+            if (showFeedback) showToast("📍 附近 50m 內無巴士站，已顯示全部路線");
+            return;
+          }
+
+          let chosenStop = stopsWithin50m[0];
+          let rawRoutes = [];
+          const now = new Date();
+
+          // 依距離由近至遠查詢 50m 內巴士站，若最近站柱無路線則自動檢查同範圍下一站柱
+          for (const candidate of stopsWithin50m) {
+            const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${candidate.stopObj.stop}`);
+            const json = await res.json();
+            const groupedByRouteDir = {};
+
+            (json.data || []).forEach(item => {
+              const rNo = String(item.route || '').trim().toUpperCase();
+              const dir = item.dir || 'O';
+              if (!rNo) return;
+              const key = `${rNo}_${dir}`;
+
+              if (!groupedByRouteDir[key]) {
+                groupedByRouteDir[key] = {
+                  route: rNo,
+                  dir,
+                  seq: item.seq || '',
+                  dest: item.dest_tc || '',
+                  stopId: candidate.stopObj.stop,
+                  stopName: candidate.stopObj.name_tc || '',
+                  etas: [],
+                  rmk: ''
+                };
+              }
+
+              if (!groupedByRouteDir[key].dest && item.dest_tc) {
+                groupedByRouteDir[key].dest = item.dest_tc;
+              }
+              if (!groupedByRouteDir[key].seq && item.seq) {
+                groupedByRouteDir[key].seq = item.seq;
+              }
+
+              if (item.eta) {
+                const mins = Math.max(0, Math.round((new Date(item.eta) - now) / 60000));
+                groupedByRouteDir[key].etas.push(mins);
+              } else if (item.rmk_tc && !groupedByRouteDir[key].rmk) {
+                groupedByRouteDir[key].rmk = item.rmk_tc;
+              }
+            });
+
+            const list = Object.values(groupedByRouteDir);
+            list.forEach(entry => {
+              entry.etas.sort((a, b) => a - b);
+              entry.etas = entry.etas.slice(0, 3);
+            });
+
+            if (list.length > 0) {
+              chosenStop = candidate;
+              rawRoutes = list;
+              break;
+            }
+          }
+
+          // 若有路線缺少目的地名稱，背景補齊
+          await Promise.all(rawRoutes.map(async (item) => {
+            if (!item.dest) {
+              item.dest = await fetchRouteDestTc(item.route, item.dir);
+            }
+          }));
+
+          isDetectingAutoStop = false;
+          autoMatchedStopInfo = {
+            stopObj: chosenStop.stopObj,
+            dist: chosenStop.dist,
+            rawRoutes
+          };
+
+          renderGroupTabs();
+          renderUnifiedRouteCards();
+
+          if (showFeedback) {
+            showToast(`📍 已進入「${simplifyStopName(chosenStop.stopObj.name_tc)}」(${chosenStop.dist}m)`);
+          }
+        } catch {
+          isDetectingAutoStop = false;
+          autoMatchedStopInfo = null;
+          renderGroupTabs();
+          renderUnifiedRouteCards();
         }
       }, () => {
-        autoMatchedGroupInfo = null;
+        isDetectingAutoStop = false;
+        autoMatchedStopInfo = null;
         renderGroupTabs();
-      }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
+        renderUnifiedRouteCards();
+      }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 });
+    };
+
+    // 排序規則：以已儲存路線為優先（並保持常用排序），其他按路線字首排序
+    function sortStationRoutesBySavedThenPrefix(rawRoutes, stopId) {
+      const histStats = lookupHistoricalRouteStats();
+
+      const enriched = rawRoutes.map(item => {
+        const exactIdx = savedRoutes.findIndex(sr =>
+          String(sr.route || '').toUpperCase() === item.route &&
+          sr.stopId === stopId &&
+          sr.dir === item.dir
+        );
+        const routeDirIdx = exactIdx === -1
+          ? savedRoutes.findIndex(sr =>
+              String(sr.route || '').toUpperCase() === item.route &&
+              sr.dir === item.dir
+            )
+          : exactIdx;
+        const routeOnlyIdx = routeDirIdx === -1
+          ? savedRoutes.findIndex(sr =>
+              String(sr.route || '').toUpperCase() === item.route
+            )
+          : routeDirIdx;
+
+        let savedTier = 999;
+        let savedOrderIdx = 9999;
+        let matchedSaved = null;
+
+        if (exactIdx !== -1) {
+          savedTier = 0;
+          savedOrderIdx = exactIdx;
+          matchedSaved = savedRoutes[exactIdx];
+        } else if (routeDirIdx !== -1) {
+          savedTier = 1;
+          savedOrderIdx = routeDirIdx;
+          matchedSaved = savedRoutes[routeDirIdx];
+        } else if (routeOnlyIdx !== -1) {
+          savedTier = 2;
+          savedOrderIdx = routeOnlyIdx;
+          matchedSaved = savedRoutes[routeOnlyIdx];
+        }
+
+        const fare = resolveFareFromRecords(item.route, matchedSaved, histStats, item.dir, item.seq);
+
+        return {
+          ...item,
+          isSaved: savedTier < 999,
+          savedTier,
+          savedOrderIdx,
+          fare
+        };
+      });
+
+      enriched.sort((a, b) => {
+        // 1. 已儲存路線優先於未儲存路線
+        if (a.isSaved !== b.isSaved) {
+          return a.isSaved ? -1 : 1;
+        }
+        // 2. 同為已儲存路線時，按匹配度與已儲存順序排列
+        if (a.isSaved && b.isSaved) {
+          if (a.savedTier !== b.savedTier) return a.savedTier - b.savedTier;
+          if (a.savedOrderIdx !== b.savedOrderIdx) return a.savedOrderIdx - b.savedOrderIdx;
+        }
+        // 3. 其他路線按路線字首排序 (Lexicographical prefix order: e.g. 265B -> 63X -> 969 -> A37 -> E36A -> N269)
+        if (a.route !== b.route) {
+          return a.route < b.route ? -1 : 1;
+        }
+        return a.dir < b.dir ? -1 : (a.dir > b.dir ? 1 : 0);
+      });
+
+      return enriched;
     }
 
     function getDisplayedRoutesWithOriginalIndex() {
@@ -1735,8 +1891,17 @@
     }
 
     window.enterMainSortMode = () => {
+      restoreAutoFilterAfterSort = false;
+      if (activeGroupFilter === 'auto' && autoMatchedStopInfo) {
+        restoreAutoFilterAfterSort = true;
+        activeGroupFilter = 'none';
+        autoMatchedStopInfo = null;
+      }
+
       const viewList = getDisplayedRoutesWithOriginalIndex();
-      if (viewList.length === 0) return showToast("⚠️ 目前畫面沒有可排序的路線", true);
+      if (viewList.length === 0 && customGroups.length <= 1) {
+        return showToast("⚠️ 目前畫面沒有可排序的路線或組別", true);
+      }
 
       backupBeforeSort = {
         list: JSON.parse(JSON.stringify(savedRoutes)),
@@ -1744,6 +1909,7 @@
       };
       routeDistPreview = {};
       isMainSortMode = true;
+      document.getElementById('sort-mode-banner').classList.remove('hidden');
 
       const controls = document.getElementById('main-route-controls');
       controls.innerHTML = `
@@ -1757,6 +1923,7 @@
           ✕ 取消
         </button>
       `;
+      renderGroupTabs();
       renderUnifiedRouteCards();
     };
 
@@ -1764,7 +1931,16 @@
       isMainSortMode = false;
       backupBeforeSort = null;
       routeDistPreview = {};
+      document.getElementById('sort-mode-banner').classList.add('hidden');
       restoreDefaultMainControls();
+      if (restoreAutoFilterAfterSort) {
+        restoreAutoFilterAfterSort = false;
+        activeGroupFilter = 'auto';
+        detectAutoBusStop(false);
+        showToast("✅ 已儲存排序（同步 Watch）");
+        return;
+      }
+      renderGroupTabs();
       renderUnifiedRouteCards();
       showToast("✅ 已儲存排序（同步 Watch）");
     };
@@ -1772,12 +1948,21 @@
     window.cancelMainSortMode = async () => {
       isMainSortMode = false;
       routeDistPreview = {};
+      document.getElementById('sort-mode-banner').classList.add('hidden');
       restoreDefaultMainControls();
       if (backupBeforeSort) {
         const { list, groups } = backupBeforeSort;
         backupBeforeSort = null;
         await syncSettingsToCloud(list, groups);
       }
+      if (restoreAutoFilterAfterSort) {
+        restoreAutoFilterAfterSort = false;
+        activeGroupFilter = 'auto';
+        detectAutoBusStop(false);
+        showToast("已取消排序更改");
+        return;
+      }
+      renderGroupTabs();
       renderUnifiedRouteCards();
       showToast("已取消排序更改");
     };
@@ -1791,7 +1976,7 @@
         <button onclick="enterMainSortMode()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-md text-gray-200 active:scale-95">
           ⇅ 排序
         </button>
-        <button onclick="refreshAllEtas()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-md text-gray-200 active:scale-95">
+        <button onclick="manualRefreshUnifiedView()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-md text-gray-200 active:scale-95">
           🔄
         </button>
       `;
@@ -1876,6 +2061,70 @@
 
     function renderUnifiedRouteCards() {
       const container = document.getElementById('unified-route-list');
+
+      // 模式 A：已選擇「📍 自動定位」且進入巴士站 50m 範圍 -> 顯示該站全站路線到站時間
+      if (!isMainSortMode && activeGroupFilter === 'auto' && autoMatchedStopInfo) {
+        const stopId = autoMatchedStopInfo.stopObj.stop;
+        const cleanStop = simplifyStopName(autoMatchedStopInfo.stopObj.name_tc);
+        const sortedStationRoutes = sortStationRoutesBySavedThenPrefix(autoMatchedStopInfo.rawRoutes, stopId);
+
+        if (sortedStationRoutes.length === 0) {
+          container.innerHTML = `<p class="text-xs text-gray-400 text-center py-4">「${escapeHtml(cleanStop)}」暫無路線資料</p>`;
+          return;
+        }
+
+        container.innerHTML = sortedStationRoutes.map(item => {
+          const directionDisplay = item.dest
+            ? `往 ${escapeHtml(item.dest)}`
+            : (item.dir === 'I' ? '回程方向' : '去程方向');
+
+          const savedBadge = item.isSaved
+            ? `<span class="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-1.5 py-0.5 rounded flex-shrink-0">⭐已存</span>`
+            : '';
+
+          const etaHtml = item.etas.length > 0
+            ? item.etas.map(mins => mins === 0
+                ? `<span class="text-emerald-400 font-bold text-xs">即將到達</span>`
+                : `<span class="text-white font-bold text-sm">${mins}</span><span class="text-[11px] text-gray-400">分</span>`
+              ).join('<span class="text-gray-600 mx-0.5">|</span>')
+            : `<span class="text-xs text-gray-500">${escapeHtml(item.rmk || '暫無班次')}</span>`;
+
+          const actionBtn = item.fare > 0
+            ? `<button onclick="logTripNow('${escapeJs(item.route)}', ${item.fare}, '${escapeJs(cleanStop)}')"
+                class="flex-shrink-0 bg-emerald-600 hover:bg-emerald-500 active:scale-95 transition text-white px-3 py-2.5 rounded-xl text-right shadow">
+                <div class="text-[10px] text-emerald-100 leading-tight">💳 拍卡記錄</div>
+                <div class="text-sm font-extrabold leading-tight mt-0.5">+$${Number(item.fare).toFixed(1)}</div>
+              </button>`
+            : `<button onclick="openSettingsWithStopPrefill('${escapeJs(stopId)}', '${escapeJs(cleanStop)}', '${escapeJs(item.route)}', '${item.dir}', '${item.seq || ''}', '${escapeJs(item.dest)}')"
+                class="flex-shrink-0 bg-gray-700 hover:bg-gray-600 active:scale-95 transition text-amber-300 px-3 py-2.5 rounded-xl text-right border border-amber-500/30">
+                <div class="text-[10px] leading-tight">📝 填價記帳</div>
+                <div class="text-xs font-bold leading-tight mt-0.5">待定價</div>
+              </button>`;
+
+          return `
+            <div class="bg-gray-900/95 p-3 rounded-xl border ${item.isSaved ? 'border-sky-500/50' : 'border-gray-700/80'} flex justify-between items-center gap-2">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="kmb-red text-white font-extrabold px-2 py-0.5 rounded text-sm flex-shrink-0">${escapeHtml(item.route)}</span>
+                  <span class="text-sm text-white font-bold truncate">${directionDisplay}</span>
+                  ${savedBadge}
+                </div>
+                <div class="text-xs text-gray-300 mt-1 truncate">
+                  📍 車站：<span class="text-gray-100 font-medium">${escapeHtml(cleanStop)}</span>
+                </div>
+                <div class="mt-1 flex items-baseline gap-1.5">
+                  <span class="text-[11px] text-gray-400">⏱️ 到站：</span>
+                  ${etaHtml}
+                </div>
+              </div>
+              ${actionBtn}
+            </div>
+          `;
+        }).join('');
+        return;
+      }
+
+      // 模式 B：顯示指定組別路線，或（未選擇組別 / 自動定位未進入 50m 範圍）顯示全部已儲存路線
       if (savedRoutes.length === 0) {
         container.innerHTML = `<p class="text-xs text-gray-400 text-center py-4">尚未儲存路線，請按右上角「定位搜站 / 管理」新增</p>`;
         return;
@@ -1965,13 +2214,13 @@
 
           const times = dirRows
             .filter(d => d.eta)
+            .map(d => Math.max(0, Math.round((new Date(d.eta) - now) / 60000)))
+            .sort((a, b) => a - b)
             .slice(0, 3)
-            .map(d => {
-              const mins = Math.max(0, Math.round((new Date(d.eta) - now) / 60000));
-              return mins === 0
-                ? `<span class="text-emerald-400 font-bold text-xs">即將到達</span>`
-                : `<span class="text-white font-bold text-sm">${mins}</span><span class="text-[11px] text-gray-400">分</span>`;
-            });
+            .map(mins => mins === 0
+              ? `<span class="text-emerald-400 font-bold text-xs">即將到達</span>`
+              : `<span class="text-white font-bold text-sm">${mins}</span><span class="text-[11px] text-gray-400">分</span>`
+            );
 
           etaCache[cacheKey] = times.length
             ? times.join('<span class="text-gray-600 mx-0.5">|</span>')
@@ -1981,96 +2230,33 @@
         }
       }));
 
-      renderUnifiedRouteCards();
+      if (!(activeGroupFilter === 'auto' && autoMatchedStopInfo)) {
+        renderUnifiedRouteCards();
+      }
     };
 
+    // 每 30 秒自動刷新實時到站時間（頁面可見且非排序模式下）
+    setInterval(() => {
+      if (document.visibilityState !== 'visible' || isMainSortMode) return;
+      if (activeGroupFilter === 'auto') {
+        detectAutoBusStop(false);
+      } else {
+        refreshAllEtas();
+      }
+    }, 30000);
+
     // ==========================================
-    // 9. 自訂組別表單控制
+    // 9. 自訂組別管理 ＆ 組別排序控制
     // ==========================================
     window.openGroupManager = () => {
       resetGroupForm();
       renderGroupChecklist([]);
-      populateGroupStopPresets();
       renderExistingGroupsList();
       document.getElementById('group-modal').classList.remove('hidden');
     };
 
     window.closeGroupManager = () => {
       document.getElementById('group-modal').classList.add('hidden');
-    };
-
-    function populateGroupStopPresets() {
-      const sel = document.getElementById('group-stop-preset');
-      const uniqueStops = [];
-      const seen = new Set();
-      savedRoutes.forEach(r => {
-        if (r.stopId && !seen.has(r.stopId)) {
-          seen.add(r.stopId);
-          uniqueStops.push(r);
-        }
-      });
-      sel.innerHTML = `<option value="">或選用巴士站位置...</option>` + uniqueStops.map(r =>
-        `<option value="${escapeHtml(r.stopId)}">${escapeHtml(simplifyStopName(r.stopName))} (${escapeHtml(r.route)})</option>`
-      ).join('');
-    }
-
-    window.applyStopLocationForGroup = async () => {
-      const stopId = document.getElementById('group-stop-preset').value;
-      if (!stopId) return;
-      const allStops = await getAllKmbStopsCached();
-      const st = allStops.find(s => s.stop === stopId);
-      if (st && st.lat && st.long) {
-        const label = simplifyStopName(st.name_tc);
-        document.getElementById('group-lat').value = st.lat;
-        document.getElementById('group-lng').value = st.long;
-        document.getElementById('group-loc-label').value = label;
-        document.getElementById('group-loc-display').innerText = `📍 ${label}`;
-        document.getElementById('group-loc-display').className = "text-sky-400 font-bold truncate";
-      }
-    };
-
-    window.captureCurrentGPSForGroup = () => {
-      if (!navigator.geolocation) return showToast("❌ 不支援 GPS 定位", true);
-      const btn = document.getElementById('capture-gps-btn');
-      btn.innerText = "📡 定位中...";
-
-      navigator.geolocation.getCurrentPosition(async (pos) => {
-        const { latitude, longitude } = pos.coords;
-        lastUserCoords = { lat: latitude, lng: longitude };
-        let label = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-
-        try {
-          const allStops = await getAllKmbStopsCached();
-          let nearest = null;
-          allStops.forEach(s => {
-            const d = getDistanceMeters(latitude, longitude, parseFloat(s.lat), parseFloat(s.long));
-            if (!isNaN(d) && (!nearest || d < nearest.d)) nearest = { s, d };
-          });
-          if (nearest && nearest.d <= 500) {
-            label = `${simplifyStopName(nearest.s.name_tc)}附近`;
-          }
-        } catch { /* 使用座標 */ }
-
-        document.getElementById('group-lat').value = latitude;
-        document.getElementById('group-lng').value = longitude;
-        document.getElementById('group-loc-label').value = label;
-        document.getElementById('group-loc-display').innerText = `📍 ${label}`;
-        document.getElementById('group-loc-display').className = "text-sky-400 font-bold truncate";
-        btn.innerText = "📡 設為目前 GPS 位置";
-        showToast(`📍 已擷取位置：${label}`);
-      }, (err) => {
-        btn.innerText = "📡 設為目前 GPS 位置";
-        showToast("❌ 定位失敗：" + err.message, true);
-      }, { enableHighAccuracy: true, timeout: 10000 });
-    };
-
-    window.clearGroupLocation = () => {
-      document.getElementById('group-lat').value = '';
-      document.getElementById('group-lng').value = '';
-      document.getElementById('group-loc-label').value = '';
-      document.getElementById('group-stop-preset').value = '';
-      document.getElementById('group-loc-display').innerText = '未設定位置（僅限手動/滑動選擇）';
-      document.getElementById('group-loc-display').className = 'text-gray-400 truncate';
     };
 
     function renderGroupChecklist(selectedKeys = []) {
@@ -2099,8 +2285,6 @@
       document.getElementById('group-form-title').innerText = '➕ 新增自訂組別';
       document.getElementById('group-reset-btn').classList.add('hidden');
       document.getElementById('group-name-input').value = '';
-      document.getElementById('group-radius-input').value = '400';
-      clearGroupLocation();
       renderGroupChecklist([]);
     };
 
@@ -2111,18 +2295,6 @@
       document.getElementById('group-form-title').innerText = `✏️ 編輯組別：${g.name}`;
       document.getElementById('group-reset-btn').classList.remove('hidden');
       document.getElementById('group-name-input').value = g.name;
-      const clampedR = Math.min(1000, Math.max(200, Math.round((Number(g.radius || 400)) / 200) * 200));
-      document.getElementById('group-radius-input').value = String(clampedR);
-
-      if (g.lat && g.lng) {
-        document.getElementById('group-lat').value = g.lat;
-        document.getElementById('group-lng').value = g.lng;
-        document.getElementById('group-loc-label').value = g.locationLabel || '已設定位置';
-        document.getElementById('group-loc-display').innerText = `📍 ${g.locationLabel || '已設定位置'}`;
-        document.getElementById('group-loc-display').className = 'text-sky-400 font-bold truncate';
-      } else {
-        clearGroupLocation();
-      }
       renderGroupChecklist(g.routeKeys || []);
     };
 
@@ -2145,18 +2317,9 @@
         orderedKeys = [...kept, ...added];
       }
 
-      const lat = document.getElementById('group-lat').value;
-      const lng = document.getElementById('group-lng').value;
-      const locationLabel = document.getElementById('group-loc-label').value;
-      const radius = Math.min(1000, Math.max(200, Number(document.getElementById('group-radius-input').value || 400)));
-
       const groupObj = {
         id: editId || ('grp_' + Date.now()),
         name,
-        lat: lat ? parseFloat(lat) : null,
-        lng: lng ? parseFloat(lng) : null,
-        locationLabel: locationLabel || '',
-        radius,
         routeKeys: orderedKeys
       };
 
@@ -2164,16 +2327,42 @@
         ? customGroups.map(g => g.id === editId ? groupObj : g)
         : [...customGroups, groupObj];
 
+      activeGroupFilter = groupObj.id;
+      persistActiveGroupChoice(groupObj.id);
       await syncSettingsToCloud(savedRoutes, updatedGroups);
-      activeGroupFilter = groupObj.lat ? 'auto' : groupObj.id;
       resetGroupForm();
       renderExistingGroupsList();
       showToast(`💾 已儲存組別「${name}」`);
     };
 
+    window.moveCustomGroup = async (idx, direction) => {
+      const updated = [...customGroups];
+      if (direction === 'top' && idx > 0) {
+        const [item] = updated.splice(idx, 1);
+        updated.unshift(item);
+      } else if (direction === 'up' && idx > 0) {
+        [updated[idx - 1], updated[idx]] = [updated[idx], updated[idx - 1]];
+      } else if (direction === 'down' && idx < updated.length - 1) {
+        [updated[idx + 1], updated[idx]] = [updated[idx], updated[idx + 1]];
+      } else {
+        return;
+      }
+      await syncSettingsToCloud(savedRoutes, updated);
+      renderExistingGroupsList();
+      showToast("✅ 已更新組別排序");
+    };
+
     window.deleteCustomGroup = async (groupId) => {
       const updatedGroups = customGroups.filter(g => g.id !== groupId);
-      if (activeGroupFilter === groupId) activeGroupFilter = 'auto';
+      if (activeGroupFilter === groupId) {
+        activeGroupFilter = 'auto';
+        persistActiveGroupChoice('auto');
+        detectAutoBusStop(false);
+      }
+      if (lastOpenedNamedGroupId === groupId) {
+        lastOpenedNamedGroupId = '';
+        localStorage.removeItem(LAST_OPENED_NAMED_GROUP_KEY);
+      }
       await syncSettingsToCloud(savedRoutes, updatedGroups);
       renderExistingGroupsList();
       showToast("🗑️ 已刪除組別");
@@ -2185,22 +2374,25 @@
         listEl.innerHTML = `<p class="text-gray-500">尚未建立任何組別</p>`;
         return;
       }
-      listEl.innerHTML = customGroups.map(g => {
-        const locBadge = (g.lat && g.lng)
-          ? `<span class="text-[10px] bg-sky-500/20 text-sky-300 px-1.5 py-0.5 rounded">📍 ${escapeHtml(g.locationLabel || '自動定位')} (${g.radius}m)</span>`
-          : `<span class="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded">手動/滑動切換</span>`;
+      listEl.innerHTML = customGroups.map((g, idx) => {
         return `
           <div class="bg-gray-900 p-2.5 rounded-xl border border-gray-700 flex justify-between items-center gap-2">
             <div class="min-w-0">
               <div class="font-bold text-gray-100 flex items-center gap-1.5 flex-wrap">
+                <span class="text-gray-400">${idx + 1}.</span>
                 <span>${escapeHtml(g.name)}</span>
-                ${locBadge}
               </div>
-              <div class="text-[11px] text-gray-400 mt-0.5">包含 ${(g.routeKeys || []).length} 條路線</div>
+              <div class="text-[11px] text-gray-400 mt-0.5 pl-4">包含 ${(g.routeKeys || []).length} 條路線</div>
             </div>
-            <div class="flex items-center gap-1.5 flex-shrink-0">
+            <div class="flex items-center gap-1 flex-shrink-0">
+              <button onclick="moveCustomGroup(${idx}, 'top')" ${idx === 0 ? 'disabled' : ''}
+                class="bg-gray-800 disabled:opacity-30 px-1.5 py-1 rounded text-[10px] font-bold text-amber-300">置頂</button>
+              <button onclick="moveCustomGroup(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''}
+                class="bg-gray-800 disabled:opacity-30 px-2 py-1 rounded text-gray-200 font-bold">▲</button>
+              <button onclick="moveCustomGroup(${idx}, 'down')" ${idx === customGroups.length - 1 ? 'disabled' : ''}
+                class="bg-gray-800 disabled:opacity-30 px-2 py-1 rounded text-gray-200 font-bold">▼</button>
               <button onclick="editCustomGroup('${escapeJs(g.id)}')" class="bg-gray-800 hover:bg-gray-700 text-sky-300 px-2 py-1 rounded">編輯</button>
-              <button onclick="deleteCustomGroup('${escapeJs(g.id)}')" class="text-red-400 px-2 py-1">刪除</button>
+              <button onclick="deleteCustomGroup('${escapeJs(g.id)}')" class="text-red-400 px-1.5 py-1">刪除</button>
             </div>
           </div>
         `;
@@ -2590,6 +2782,13 @@
       }
     };
 
+    window.openSettingsWithStopPrefill = (stopId, name, route, dir, seq = '', dest = '') => {
+      populateStep3GroupSelect();
+      document.getElementById('settings-modal').classList.remove('hidden');
+      initOfficialFares();
+      selectStopAndAutoFill(stopId, name, route, dir, seq, dest);
+    };
+
     window.autoFillOfficialFareFromInput = () => {
       const route = document.getElementById('new-route').value.trim().toUpperCase();
       const dir = document.getElementById('new-dir').value;
@@ -2689,6 +2888,7 @@
       await syncSettingsToCloud(updated, customGroups);
     };
 
+    // 已儲存常用路線列表（顯示路線所屬組別）
     function renderManageList() {
       const manageList = document.getElementById('manage-routes-list');
       if (savedRoutes.length === 0) {
@@ -2697,6 +2897,14 @@
       }
       manageList.innerHTML = savedRoutes.map((r, idx) => {
         const destText = r.dest ? `往 ${escapeHtml(r.dest)}` : (r.dir === 'I' ? '回程' : '去程');
+        const routeKey = getRouteKey(r);
+        const matchedGroups = customGroups.filter(g => Array.isArray(g.routeKeys) && g.routeKeys.includes(routeKey));
+        const groupsHtml = matchedGroups.length > 0
+          ? `<div class="flex items-center gap-1 flex-wrap pl-4 mt-1">${matchedGroups.map(g =>
+              `<span class="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded font-medium">📁 ${escapeHtml(g.name)}</span>`
+            ).join('')}</div>`
+          : `<div class="text-[10px] text-gray-500 pl-4 mt-0.5">📁 未加入組別</div>`;
+
         return `
           <div class="flex justify-between items-center bg-gray-900 p-2 rounded-lg border border-gray-800 gap-2">
             <div class="min-w-0">
@@ -2705,6 +2913,7 @@
                 <b>${escapeHtml(r.route)}</b> ${destText} <span class="text-emerald-400">($${r.fare})</span>
               </div>
               <div class="text-[11px] text-gray-400 truncate pl-4">上車站：${escapeHtml(simplifyStopName(r.stopName))}</div>
+              ${groupsHtml}
             </div>
             <div class="flex items-center gap-1 flex-shrink-0">
               <button onclick="moveSavedRouteGlobal(${idx}, 'up')" ${idx === 0 ? 'disabled' : ''}
@@ -2732,6 +2941,7 @@
 
     window.openSettings = () => {
       populateStep3GroupSelect();
+      renderManageList();
       document.getElementById('settings-modal').classList.remove('hidden');
       initOfficialFares();
       findNearbyRoutes();
@@ -2744,8 +2954,16 @@
     updateCycleHeaderLabels();
     ensureTripsSubscription(true);
     initOfficialFares();
+    renderGroupTabs();
+    renderUnifiedRouteCards();
     recalculateAndRenderAll();
     flushOfflineTripsToCloud();
+
+    if (activeGroupFilter === 'auto') {
+      detectAutoBusStop(false);
+    } else {
+      refreshAllEtas();
+    }
 
     if (isOctopusTrigger && !octopusHandled) {
       octopusHandled = true;
