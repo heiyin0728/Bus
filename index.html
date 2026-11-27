@@ -10,7 +10,7 @@
   <style>
     body { background-color: #111827; color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
     .kmb-red { background-color: #E3001B; }
-    input[type="datetime-local"] { color-scheme: dark; }
+    input[type="datetime-local"], input[type="date"] { color-scheme: dark; }
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
@@ -28,16 +28,20 @@
     </button>
   </header>
 
-  <!-- 八達通自動拍卡確認橫幅 -->
+  <!-- 八達通巴士 $0 自動拍卡確認橫幅 -->
   <div id="octopus-banner" class="hidden max-w-md mx-auto px-4 pt-3">
-    <div class="bg-emerald-900/95 border border-emerald-400 rounded-2xl p-3.5 shadow-xl flex items-center justify-between gap-2">
-      <div class="min-w-0">
-        <div class="text-xs font-bold text-emerald-300">🐙 八達通拍卡已自動入帳</div>
-        <div id="octopus-banner-detail" class="text-sm font-extrabold text-white truncate mt-0.5">處理中...</div>
+    <div class="bg-emerald-900/95 border border-emerald-400 rounded-2xl p-3.5 shadow-xl space-y-2">
+      <div class="flex items-center justify-between gap-2">
+        <div class="min-w-0">
+          <div id="octopus-banner-title" class="text-xs font-bold text-emerald-300">🐙 八達通巴士 $0 已即時入帳</div>
+          <div id="octopus-banner-detail" class="text-sm font-extrabold text-white truncate mt-0.5">正在推算路線與收費...</div>
+        </div>
+        <button onclick="undoOctopusAutoTrip()" class="bg-black/40 hover:bg-black/60 text-amber-300 text-xs font-bold px-3 py-2 rounded-xl flex-shrink-0">
+          撤銷
+        </button>
       </div>
-      <button onclick="undoOctopusAutoTrip()" class="bg-black/40 hover:bg-black/60 text-amber-300 text-xs font-bold px-3 py-2 rounded-xl flex-shrink-0">
-        撤銷
-      </button>
+      <!-- 同站備選路線快速切換列 -->
+      <div id="octopus-alt-routes" class="hidden pt-1.5 border-t border-emerald-700/70 flex items-center gap-1.5 overflow-x-auto no-scrollbar"></div>
     </div>
   </div>
 
@@ -49,27 +53,40 @@
   <!-- 主內容區 -->
   <main class="px-4 pt-4 max-w-md mx-auto space-y-4">
 
-    <!-- 1. 月票回本進度卡片 (已整合本月車程紀錄) -->
+    <!-- 1. 月票回本進度卡片 (今期累計 + 30日週期 + 回贈後成本) -->
     <section class="bg-gray-800 rounded-2xl p-4 shadow-md border border-gray-700">
-      <div class="flex justify-between items-end mb-2">
-        <div>
-          <span class="text-xs text-gray-400">本月累積正價車資 (即時雲端同步)</span>
-          <div class="text-3xl font-extrabold text-white mt-0.5">$<span id="total-fare">0.0</span></div>
+      <div class="flex justify-between items-start mb-2 gap-2">
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-xs text-gray-400">今期累計正價車資</span>
+            <button onclick="openPassDateModal()" class="text-[11px] bg-gray-700 hover:bg-gray-600 text-sky-300 px-2 py-0.5 rounded-md font-bold active:scale-95">
+              📅 <span id="cycle-range-badge">--/--~--/--</span> ✎
+            </button>
+          </div>
+          <div class="text-3xl font-extrabold text-white mt-1">$<span id="total-fare">0.0</span></div>
         </div>
-        <div class="text-right">
+        <div class="text-right flex-shrink-0">
           <span id="status-badge" class="px-2.5 py-1 rounded-full text-xs font-bold bg-yellow-500/20 text-yellow-400">
             計算中
           </span>
-          <div class="text-xs text-gray-400 mt-1">月票成本 $834</div>
+          <div class="text-xs text-gray-400 mt-1.5">月票成本 $834</div>
         </div>
       </div>
 
-      <div class="w-full bg-gray-700 rounded-full h-3.5 mt-2.5 overflow-hidden">
+      <div class="w-full bg-gray-700 rounded-full h-3.5 mt-2 overflow-hidden">
         <div id="progress-bar" class="kmb-red h-3.5 rounded-full transition-all duration-500" style="width: 0%"></div>
       </div>
-      <div class="flex justify-between text-xs text-gray-400 mt-2">
+
+      <!-- 原價回本進度列 -->
+      <div class="flex justify-between text-xs text-gray-300 mt-2">
         <span id="diff-text">仲差 $834.0 回本</span>
-        <span id="trip-count">共 0 程</span>
+        <span id="trip-count" class="text-gray-400">共 0 程</span>
+      </div>
+
+      <!-- 車費回贈後成本 ($722.7) 回本進度列 -->
+      <div class="flex justify-between text-xs text-sky-300 mt-1 pt-1 border-t border-gray-700/60">
+        <span id="rebate-diff-text">回贈後仲差 $722.7 回本</span>
+        <span class="text-sky-300/90 font-medium">回贈後成本 $722.7</span>
       </div>
 
       <!-- 離線待同步提示列 (僅在無網絡暫存時顯示) -->
@@ -80,28 +97,28 @@
         </button>
       </div>
 
-      <!-- 收納於同一卡片內的「本月車程紀錄」 -->
+      <!-- 收納於同一卡片內的「今期車程紀錄」 -->
       <div class="mt-3 pt-3 border-t border-gray-700/80">
         <button onclick="toggleHistoryDrawer()" class="w-full flex justify-between items-center text-left py-0.5">
           <span class="text-xs font-bold text-gray-200 flex items-center gap-1.5">
-            📋 本月車程紀錄
+            📋 今期車程紀錄
             <span id="history-count-pill" class="text-[11px] bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">0 程</span>
           </span>
           <span id="history-toggle-icon" class="text-xs text-sky-400 font-bold">收起 ▲</span>
         </button>
         <div id="history-drawer-body" class="mt-2">
           <div id="history-list" class="divide-y divide-gray-700/80 max-h-64 overflow-y-auto text-sm">
-            <p class="text-xs text-gray-400 text-center py-3">本月暫無搭車紀錄</p>
+            <p class="text-xs text-gray-400 text-center py-3">今期暫無搭車紀錄</p>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- 2. 智能建議路線 (根據使用紀錄自動生成) -->
+    <!-- 2. 智能建議路線 (僅記錄非儲存的路線，並按乘搭次數排序) -->
     <section id="suggested-section" class="bg-gray-800 rounded-2xl p-4 shadow-md border border-gray-700 hidden">
       <div class="flex justify-between items-center mb-2.5">
-        <h2 class="text-sm font-bold text-amber-300">⚡ 常用建議路線 (免搜尋一鍵記帳)</h2>
-        <span class="text-[11px] text-gray-400">按搭車習慣排序</span>
+        <h2 class="text-sm font-bold text-amber-300">⚡ 常用建議路線 (非儲存路線 · 一鍵記帳)</h2>
+        <span class="text-[11px] text-gray-400">按乘搭次數排序</span>
       </div>
       <div id="suggested-list" class="flex gap-2 overflow-x-auto pb-1 no-scrollbar"></div>
     </section>
@@ -137,13 +154,13 @@
 
   </main>
 
-  <!-- 彈出卡片 1：GPS 定位搜站 & 路線管理 Modal (點擊卡片外任何位置可關閉) -->
+  <!-- 彈出卡片 1：GPS 定位搜站 & 路線管理 / 直接記賬 Modal -->
   <div id="settings-modal" onclick="if(event.target===this) closeSettings()" class="fixed inset-0 bg-black/80 hidden z-50 flex items-center justify-center p-4">
-    <div class="bg-gray-800 rounded-2xl w-full max-w-md border border-gray-700 max-h-[84vh] flex flex-col overflow-hidden shadow-2xl">
+    <div class="bg-gray-800 rounded-2xl w-full max-w-md border border-gray-700 max-h-[85vh] flex flex-col overflow-hidden shadow-2xl">
       
       <div class="flex-shrink-0 flex justify-between items-center px-4 py-3 border-b border-gray-700 bg-gray-800">
         <div>
-          <h3 class="text-base font-bold">📍 附近路線搜站 ＆ 管理</h3>
+          <h3 class="text-base font-bold">📍 附近路線搜站 ＆ 記賬 / 管理</h3>
           <div class="flex items-center gap-2 mt-0.5">
             <p id="fare-db-status" class="text-[11px] text-gray-400">⏳ 正在同步九巴官方定價表...</p>
             <button onclick="initOfficialFares(true)" class="text-[10px] text-sky-400 underline">重載定價</button>
@@ -157,7 +174,7 @@
         <!-- 步驟 1：即時定位附近九巴站 -->
         <div class="bg-gray-900 p-3 rounded-xl space-y-2.5 border border-gray-700">
           <div class="flex justify-between items-center">
-            <p class="text-xs font-bold text-sky-400">步驟 1：附近九巴路線 (點擊查看各站距離)</p>
+            <p class="text-xs font-bold text-sky-400">步驟 1：附近九巴路線 (1km內 · 點擊查站)</p>
             <button onclick="findNearbyRoutes()" class="bg-sky-600 hover:bg-sky-500 text-white text-xs px-2.5 py-1 rounded-lg font-bold active:scale-95">
               📡 重新定位
             </button>
@@ -194,10 +211,10 @@
           </div>
         </details>
 
-        <!-- 步驟 3：確認官方正價並儲存至雲端 -->
+        <!-- 步驟 3：確認官方正價 -> 直接記賬 OR 加入組別並儲存路線 -->
         <div class="space-y-2 bg-gray-900 p-3 rounded-xl border border-emerald-700/60">
           <div class="flex justify-between items-center">
-            <p class="text-xs font-bold text-emerald-400">步驟 3：確認官方正價並儲存路線</p>
+            <p class="text-xs font-bold text-emerald-400">步驟 3：確認官方正價 · 記賬或儲存路線</p>
             <span id="fare-source-badge" class="text-[10px] text-gray-400"></span>
           </div>
           <div class="grid grid-cols-2 gap-2">
@@ -205,7 +222,7 @@
             <input id="new-fare" type="number" step="0.1" placeholder="官方正價 (自動填入)" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm font-bold text-emerald-300">
           </div>
           <div class="grid grid-cols-2 gap-2">
-            <input id="new-stop-name" type="text" placeholder="上車站名" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
+            <input id="new-stop-name" type="text" placeholder="上車站名 (選填)" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
             <input id="new-dest-name" type="text" placeholder="總站方向 (如 佐敦)" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm">
           </div>
           <div class="grid grid-cols-3 gap-2">
@@ -215,10 +232,25 @@
               <option value="I">回程 (I)</option>
             </select>
           </div>
+
+          <!-- 直接加入組別選項 -->
+          <div>
+            <select id="new-route-group" class="w-full bg-gray-800 border border-indigo-500/40 rounded-lg px-3 py-2 text-xs text-indigo-300 font-medium">
+              <option value="">📁 儲存時加入組別（選填：不加入組別）</option>
+            </select>
+          </div>
+
           <input id="new-stop-seq" type="hidden" value="">
-          <button onclick="addCustomRoute()" class="w-full bg-emerald-600 hover:bg-emerald-500 py-2.5 rounded-lg text-sm font-bold active:scale-95">
-            💾 儲存路線 (同步 iPhone ＆ Watch)
-          </button>
+
+          <!-- 雙功能操作列：直接記賬（免儲存路線）＆ 儲存路線 -->
+          <div class="grid grid-cols-2 gap-2 pt-0.5">
+            <button onclick="logTripDirectlyFromStep3()" class="w-full bg-amber-600 hover:bg-amber-500 py-2.5 rounded-lg text-xs font-extrabold text-white active:scale-95">
+              💳 立即記賬 (免存路線)
+            </button>
+            <button onclick="addCustomRoute()" class="w-full bg-emerald-600 hover:bg-emerald-500 py-2.5 rounded-lg text-xs font-extrabold text-white active:scale-95">
+              💾 儲存路線 (同步手錶)
+            </button>
+          </div>
         </div>
 
         <!-- 已儲存常用路線 -->
@@ -308,7 +340,29 @@
     </div>
   </div>
 
-  <!-- 彈出卡片 3：編輯車程時間 Modal -->
+  <!-- 彈出卡片 3：自訂月票購買日 Modal (由購買日起計30日，含購買日) -->
+  <div id="pass-date-modal" onclick="if(event.target===this) closePassDateModal()" class="fixed inset-0 bg-black/80 hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-800 rounded-2xl w-full max-w-sm p-5 border border-gray-700 space-y-4 shadow-2xl">
+      <div class="flex justify-between items-center border-b border-gray-700 pb-2.5">
+        <h3 class="text-base font-bold">📅 自訂月票購買日</h3>
+        <button onclick="closePassDateModal()" class="text-gray-400 text-2xl font-bold leading-none">&times;</button>
+      </div>
+      <div class="space-y-2.5">
+        <p class="text-xs text-gray-300">由購買日開始計算連續 30 日（包括購買日當日）：</p>
+        <input id="pass-purchase-date-input" type="date" oninput="previewPassCycleRange()" class="w-full bg-gray-900 border border-gray-600 rounded-xl px-3 py-2.5 text-sm text-white">
+        <div class="bg-gray-900/90 border border-sky-500/30 rounded-xl p-2.5 text-xs flex justify-between items-center">
+          <span class="text-gray-400">計算週期 (30日)：</span>
+          <span id="pass-cycle-preview" class="text-sky-300 font-extrabold">--/--~--/--</span>
+        </div>
+      </div>
+      <div class="flex gap-2 pt-1">
+        <button onclick="setPassDateToday()" class="w-1/2 bg-gray-700 hover:bg-gray-600 py-2 rounded-xl text-xs font-bold text-sky-300">設為今日購買</button>
+        <button onclick="savePassPurchaseDate()" class="w-1/2 bg-emerald-600 hover:bg-emerald-500 py-2 rounded-xl text-xs font-bold text-white">儲存週期</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 彈出卡片 4：編輯車程時間 Modal -->
   <div id="edit-time-modal" onclick="if(event.target===this) closeEditTimeModal()" class="fixed inset-0 bg-black/80 hidden z-50 flex items-center justify-center p-4">
     <div class="bg-gray-800 rounded-2xl w-full max-w-sm p-5 border border-gray-700 space-y-4 shadow-2xl">
       <div class="flex justify-between items-center border-b border-gray-700 pb-2.5">
@@ -327,7 +381,7 @@
     </div>
   </div>
 
-  <!-- 彈出卡片 4：刪除車程確認 Modal -->
+  <!-- 彈出卡片 5：刪除車程確認 Modal -->
   <div id="delete-confirm-modal" onclick="if(event.target===this) closeDeleteModal()" class="fixed inset-0 bg-black/80 hidden z-50 flex items-center justify-center p-4">
     <div class="bg-gray-800 rounded-2xl w-full max-w-sm p-5 border border-gray-700 space-y-4 shadow-2xl">
       <h3 class="text-base font-bold text-red-400">🗑️ 確定刪除此程紀錄？</h3>
@@ -354,20 +408,27 @@
     const db = getFirestore(app);
 
     const PASS_COST = 834;
+    const REBATE_PASS_COST = 722.7;
     const OFFLINE_QUEUE_KEY = 'kmb_offline_queue_v2';
     const ROUTES_LOCAL_CACHE_KEY = 'kmb_saved_routes_cache_v2';
+    const TRIPS_LOCAL_CACHE_KEY = 'kmb_trips_cache_v1';
+    const LAST_GPS_CACHE_KEY = 'kmb_last_gps_v1';
+    const PASS_PURCHASE_DATE_KEY = 'kmb_pass_purchase_date_v1';
     const STOPS_CACHE_KEY = 'kmb_all_stops_cache_v1';
     const ROUTE_FARES_CACHE_KEY = 'kmb_route_fares_only_v3';
     const STOP_FARES_CACHE_KEY = 'kmb_stop_fares_only_v3';
 
     let savedRoutes = [];
     let customGroups = [];
+    let passPurchaseDate = localStorage.getItem(PASS_PURCHASE_DATE_KEY) || '';
     let activeGroupFilter = 'auto'; // 'auto' | 'all' | '<groupId>'
     let autoMatchedGroupInfo = null;
 
     let backupBeforeSort = null;
     let routeDistPreview = {};
     let cloudTrips = [];
+    let unsubscribeTripsListener = null;
+    let subscribedMonthsKey = '';
     let offlineQueue = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
     let etaCache = {};
     let destCache = {};
@@ -380,15 +441,29 @@
     let currentSelectedNearbyKey = null;
     let isFullStopsExpanded = false;
 
+    // 啟動時立即讀取本機快取（確保拍卡自動入帳 0ms 即可取得儲存路線與歷史收費）
+    try {
+      const cachedSettings = JSON.parse(localStorage.getItem(ROUTES_LOCAL_CACHE_KEY) || 'null');
+      if (cachedSettings) {
+        if (Array.isArray(cachedSettings.list)) savedRoutes = cachedSettings.list;
+        if (Array.isArray(cachedSettings.groups)) customGroups = cachedSettings.groups;
+      }
+      const cachedTrips = JSON.parse(localStorage.getItem(TRIPS_LOCAL_CACHE_KEY) || 'null');
+      if (Array.isArray(cachedTrips)) cloudTrips = cachedTrips;
+      const cachedGps = JSON.parse(localStorage.getItem(LAST_GPS_CACHE_KEY) || 'null');
+      if (cachedGps && cachedGps.lat && cachedGps.lng) lastUserCoords = cachedGps;
+    } catch { /* 略過 */ }
+
     // 官方車費快取
     let officialFareDB = { routeFares: {}, stopFares: {} };
 
-    // 八達通自動觸發狀態
+    // 八達通自動觸發參數解析（驗證：巴士 ＋ 0收費）
     const urlParams = new URLSearchParams(window.location.search);
     const isOctopusTrigger = urlParams.get('octopus') === '1';
-    const octopusAmountParam = parseFloat(urlParams.get('amount') || '0');
+    const rawOctopusAmount = urlParams.get('amount');
+    const rawOctopusMerchant = (urlParams.get('merchant') || urlParams.get('category') || '').trim();
     let octopusHandled = false;
-    let lastOctopusDocId = null;
+    let lastOctopusRecord = null; // { id, source }
 
     if (isOctopusTrigger) {
       window.history.replaceState({}, '', window.location.pathname);
@@ -423,9 +498,109 @@
       };
     }
 
-    const initHK = getHKTimeInfo();
-    const CURRENT_MONTH = initHK.monthStr;
-    document.getElementById('current-month-label').innerText = `${CURRENT_MONTH} 月份統計`;
+    // ==========================================
+    // 月票 30 日週期計算引擎（購買日起計30日，包括購買日）
+    // ==========================================
+    function parseYMDToUTC(ymd) {
+      const [y, m, d] = String(ymd || '').split('-').map(Number);
+      if (!y || !m || !d) return null;
+      return new Date(Date.UTC(y, m - 1, d));
+    }
+
+    function formatUTCDDMM(utcDate) {
+      const dd = String(utcDate.getUTCDate()).padStart(2, '0');
+      const mm = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
+      return `${dd}/${mm}`;
+    }
+
+    function formatUTCYMD(utcDate) {
+      const yyyy = utcDate.getUTCFullYear();
+      const mm = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(utcDate.getUTCDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    function computePassCycleInfo(purchaseYMD = passPurchaseDate) {
+      const hk = getHKTimeInfo();
+      const baseYMD = purchaseYMD || `${hk.year}-${hk.month}-01`;
+      let startUTC = parseYMDToUTC(baseYMD) || parseYMDToUTC(`${hk.year}-${hk.month}-01`);
+      const todayUTC = parseYMDToUTC(hk.dateStr);
+
+      const diffDays = Math.floor((todayUTC.getTime() - startUTC.getTime()) / 86400000);
+      if (diffDays >= 30) {
+        const cycleOffset = Math.floor(diffDays / 30);
+        startUTC = new Date(startUTC.getTime() + cycleOffset * 30 * 86400000);
+      }
+
+      const endUTC = new Date(startUTC.getTime() + 29 * 86400000);
+      const startYMD = formatUTCYMD(startUTC);
+      const endYMD = formatUTCYMD(endUTC);
+      const rangeText = `${formatUTCDDMM(startUTC)}~${formatUTCDDMM(endUTC)}`;
+
+      const startMs = new Date(`${startYMD}T00:00:00+08:00`).getTime();
+      const endMs = new Date(`${endYMD}T23:59:59.999+08:00`).getTime();
+      const startMonth = startYMD.slice(0, 7);
+      const endMonth = endYMD.slice(0, 7);
+      const months = startMonth === endMonth ? [startMonth] : [startMonth, endMonth];
+
+      return {
+        baseYMD,
+        startYMD,
+        endYMD,
+        rangeText,
+        startMs,
+        endMs,
+        months
+      };
+    }
+
+    function updateCycleHeaderLabels() {
+      const cycle = computePassCycleInfo();
+      document.getElementById('current-month-label').innerText = `月票週期：${cycle.rangeText} (30日)`;
+      document.getElementById('cycle-range-badge').innerText = cycle.rangeText;
+      return cycle;
+    }
+
+    window.openPassDateModal = () => {
+      const cycle = computePassCycleInfo();
+      document.getElementById('pass-purchase-date-input').value = cycle.baseYMD;
+      previewPassCycleRange();
+      document.getElementById('pass-date-modal').classList.remove('hidden');
+    };
+
+    window.closePassDateModal = () => {
+      document.getElementById('pass-date-modal').classList.add('hidden');
+    };
+
+    window.previewPassCycleRange = () => {
+      const val = document.getElementById('pass-purchase-date-input').value;
+      if (!val) return;
+      const startUTC = parseYMDToUTC(val);
+      if (!startUTC) return;
+      const endUTC = new Date(startUTC.getTime() + 29 * 86400000);
+      document.getElementById('pass-cycle-preview').innerText = `${formatUTCDDMM(startUTC)}~${formatUTCDDMM(endUTC)}`;
+    };
+
+    window.setPassDateToday = () => {
+      const hk = getHKTimeInfo();
+      document.getElementById('pass-purchase-date-input').value = hk.dateStr;
+      previewPassCycleRange();
+    };
+
+    window.savePassPurchaseDate = async () => {
+      const val = document.getElementById('pass-purchase-date-input').value;
+      if (!val) return showToast("⚠️ 請選擇購買日期", true);
+      passPurchaseDate = val;
+      localStorage.setItem(PASS_PURCHASE_DATE_KEY, passPurchaseDate);
+      const cycle = updateCycleHeaderLabels();
+      ensureTripsSubscription(true);
+      recalculateAndRenderAll();
+      closePassDateModal();
+      showToast(`📅 已更新月票週期：${cycle.rangeText}`);
+      try {
+        await syncSettingsToCloud(savedRoutes, customGroups, passPurchaseDate);
+      } catch { /* 雲端背景同步 */ }
+    };
 
     function escapeHtml(str) {
       return String(str || '').replace(/[&<>"']/g, m => ({
@@ -472,13 +647,14 @@
       if (e.key === 'Escape') {
         closeSettings();
         closeGroupManager();
+        closePassDateModal();
         closeEditTimeModal();
         closeDeleteModal();
       }
     });
 
     // ==========================================
-    // 0. 九巴官方正價資料庫引擎 (解決連線逾時：全線與分段分離載入)
+    // 0. 九巴官方正價資料庫引擎
     // ==========================================
     async function fetchWithTimeout(url, timeoutMs = 15000) {
       const controller = new AbortController();
@@ -506,7 +682,6 @@
     window.initOfficialFares = async (forceRefresh = false) => {
       const statusEl = document.getElementById('fare-db-status');
 
-      // 1. 優先讀取本機快取（全線與分段分開儲存，避免容量超限或單檔逾時）
       const cachedRoute = JSON.parse(localStorage.getItem(ROUTE_FARES_CACHE_KEY) || 'null');
       const cachedStop = JSON.parse(localStorage.getItem(STOP_FARES_CACHE_KEY) || 'null');
 
@@ -524,7 +699,6 @@
 
       let kmbRouteIdMap = {};
       try {
-        // 步驟 A：先下載輕量的 ROUTE_BUS.json (15秒超時)
         const routeRaw = await fetchWithTimeout('https://static.data.gov.hk/td/routes-fares-json/ROUTE_BUS.json', 15000);
         const routeList = extractArrayFromTDJson(routeRaw);
         const routeFares = {};
@@ -548,7 +722,6 @@
         if (Object.keys(routeFares).length === 0) throw new Error('路線定價資料為空');
 
         officialFareDB.routeFares = routeFares;
-        // 立即寫入快取，絕不因後續分段表逾時而遺失
         try {
           localStorage.setItem(ROUTE_FARES_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: routeFares }));
         } catch { /* 略過 */ }
@@ -558,7 +731,7 @@
         if (currentSelectedNearbyKey) renderStep2Stops();
         autoFillOfficialFareFromInput();
 
-      } catch (err) {
+      } catch {
         if (Object.keys(officialFareDB.routeFares).length > 0) {
           if (statusEl) statusEl.innerText = `🟢 使用本機快取正價 (${Object.keys(officialFareDB.routeFares).length} 條線)`;
         } else {
@@ -567,7 +740,6 @@
         return;
       }
 
-      // 步驟 B：背景靜默載入分段收費表 (獨立 try/catch，失敗完全不影響主定價庫)
       try {
         const rstopRaw = await fetchWithTimeout('https://static.data.gov.hk/td/routes-fares-json/RSTOP_BUS.json', 25000);
         const rstopList = extractArrayFromTDJson(rstopRaw);
@@ -593,15 +765,13 @@
           officialFareDB.stopFares = stopFares;
           try {
             localStorage.setItem(STOP_FARES_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: stopFares }));
-          } catch { /* 容量不足略過分段持久化 */ }
+          } catch { /* 略過 */ }
           if (statusEl) statusEl.innerText = `🟢 官方正價庫已就緒 (${Object.keys(officialFareDB.routeFares).length} 條線含分段)`;
           if (Object.keys(nearbyGroupedRoutes).length > 0) renderNearbyGroupedRoutesList();
           if (currentSelectedNearbyKey) renderStep2Stops();
           autoFillOfficialFareFromInput();
         }
-      } catch {
-        // 分段表超時則安靜保持全線正價即可
-      }
+      } catch { /* 略過 */ }
     };
 
     function lookupOfficialFare(route, dir = 'O', seq = null) {
@@ -650,66 +820,93 @@
     }
 
     // ==========================================
-    // 1. 監聽雲端常用路線與自訂組別設定 (同步 Watch)
+    // 1. 監聽雲端常用路線、組別與月票購買日設定 (同步 Watch)
     // ==========================================
     onSnapshot(doc(db, "settings", "user_routes"), (docSnap) => {
       const data = docSnap.exists() ? docSnap.data() : {};
       savedRoutes = Array.isArray(data.list) ? data.list : [];
       customGroups = Array.isArray(data.groups) ? data.groups : [];
+      if (data.passPurchaseDate && data.passPurchaseDate !== passPurchaseDate) {
+        passPurchaseDate = data.passPurchaseDate;
+        localStorage.setItem(PASS_PURCHASE_DATE_KEY, passPurchaseDate);
+        updateCycleHeaderLabels();
+        ensureTripsSubscription(true);
+      }
 
       try {
         localStorage.setItem(ROUTES_LOCAL_CACHE_KEY, JSON.stringify({ list: savedRoutes, groups: customGroups }));
       } catch { /* 略過 */ }
 
+      populateStep3GroupSelect();
       renderManageList();
       renderGroupTabs();
       renderUnifiedRouteCards();
       refreshAllEtas();
-      renderSuggestedRoutes();
+      recalculateAndRenderAll();
       detectAutoLocationGroup(false);
-
-      if (isOctopusTrigger && !octopusHandled && savedRoutes.length > 0) {
-        octopusHandled = true;
-        handleOctopusAutoTap();
-      }
     });
 
-    async function syncSettingsToCloud(newList = savedRoutes, newGroups = customGroups) {
-      await setDoc(doc(db, "settings", "user_routes"), {
+    async function syncSettingsToCloud(newList = savedRoutes, newGroups = customGroups, newPurchaseDate = passPurchaseDate) {
+      const payload = {
         list: newList,
         groups: newGroups
+      };
+      if (newPurchaseDate) payload.passPurchaseDate = newPurchaseDate;
+      await setDoc(doc(db, "settings", "user_routes"), payload, { merge: true });
+    }
+
+    // ==========================================
+    // 2. 動態監聽今期 30 日週期雲端車程紀錄
+    // ==========================================
+    function ensureTripsSubscription(forceRestart = false) {
+      const cycle = computePassCycleInfo();
+      const monthsKey = cycle.months.join(',');
+      if (!forceRestart && unsubscribeTripsListener && subscribedMonthsKey === monthsKey) {
+        return;
+      }
+      if (unsubscribeTripsListener) {
+        unsubscribeTripsListener();
+        unsubscribeTripsListener = null;
+      }
+      subscribedMonthsKey = monthsKey;
+
+      const q = cycle.months.length === 1
+        ? query(collection(db, "trips"), where("month", "==", cycle.months[0]))
+        : query(collection(db, "trips"), where("month", "in", cycle.months));
+
+      unsubscribeTripsListener = onSnapshot(q, (snapshot) => {
+        const list = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          list.push({
+            id: docSnap.id,
+            source: 'cloud',
+            route: data.route,
+            fare: Number(data.fare || 0),
+            stopName: data.stopName || '',
+            timestamp: data.createdAt ? data.createdAt.seconds * 1000 : Date.now()
+          });
+        });
+        cloudTrips = list;
+        try {
+          localStorage.setItem(TRIPS_LOCAL_CACHE_KEY, JSON.stringify(list));
+        } catch { /* 略過 */ }
+        recalculateAndRenderAll();
       });
     }
 
     // ==========================================
-    // 2. 監聽當月雲端車程紀錄 (與 Watch 即時雙向同步)
-    // ==========================================
-    const q = query(collection(db, "trips"), where("month", "==", CURRENT_MONTH));
-    onSnapshot(q, (snapshot) => {
-      const list = [];
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        list.push({
-          id: docSnap.id,
-          source: 'cloud',
-          route: data.route,
-          fare: Number(data.fare || 0),
-          stopName: data.stopName || '',
-          timestamp: data.createdAt ? data.createdAt.seconds * 1000 : Date.now()
-        });
-      });
-      cloudTrips = list;
-      recalculateAndRenderAll();
-    });
-
-    // ==========================================
-    // 3. 整合數據並渲染卡片（含內嵌本月車程紀錄）
+    // 3. 整合數據並渲染進度卡片（含回贈後成本 & 今期車程紀錄）
     // ==========================================
     function recalculateAndRenderAll() {
-      const currentOffline = offlineQueue.filter(t => t.month === CURRENT_MONTH);
+      const cycle = updateCycleHeaderLabels();
+
+      const currentOffline = offlineQueue.filter(t => t.timestamp >= cycle.startMs && t.timestamp <= cycle.endMs);
+      const currentCloud = cloudTrips.filter(t => t.timestamp >= cycle.startMs && t.timestamp <= cycle.endMs);
+
       const allTrips = [
         ...currentOffline.map(t => ({ ...t, source: 'offline' })),
-        ...cloudTrips
+        ...currentCloud
       ].sort((a, b) => b.timestamp - a.timestamp);
 
       const total = allTrips.reduce((sum, t) => sum + Number(t.fare || 0), 0);
@@ -733,22 +930,36 @@
 
       const badge = document.getElementById('status-badge');
       const diffText = document.getElementById('diff-text');
+      const rebateDiffText = document.getElementById('rebate-diff-text');
 
       if (total >= PASS_COST) {
         badge.className = "px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400";
         badge.innerText = "🎉 已回本";
         diffText.innerText = `已淨賺 $${(total - PASS_COST).toFixed(1)}`;
         diffText.className = "text-emerald-400 font-bold";
+      } else if (total >= REBATE_PASS_COST) {
+        badge.className = "px-2.5 py-1 rounded-full text-xs font-bold bg-sky-500/20 text-sky-300";
+        badge.innerText = `✨ 回贈已回本 (${percent.toFixed(0)}%)`;
+        diffText.innerText = `仲差 $${(PASS_COST - total).toFixed(1)} 回本`;
+        diffText.className = "text-gray-300";
       } else {
         badge.className = "px-2.5 py-1 rounded-full text-xs font-bold bg-yellow-500/20 text-yellow-400";
         badge.innerText = `進度 ${percent.toFixed(0)}%`;
         diffText.innerText = `仲差 $${(PASS_COST - total).toFixed(1)} 回本`;
-        diffText.className = "text-gray-400";
+        diffText.className = "text-gray-300";
+      }
+
+      if (total >= REBATE_PASS_COST) {
+        rebateDiffText.innerText = `🎉 回贈後已淨賺 $${(total - REBATE_PASS_COST).toFixed(1)}`;
+        rebateDiffText.className = "text-emerald-400 font-bold";
+      } else {
+        rebateDiffText.innerText = `回贈後仲差 $${(REBATE_PASS_COST - total).toFixed(1)} 回本`;
+        rebateDiffText.className = "text-sky-300";
       }
 
       const historyEl = document.getElementById('history-list');
       if (allTrips.length === 0) {
-        historyEl.innerHTML = `<p class="text-xs text-gray-400 text-center py-3">本月暫無搭車紀錄</p>`;
+        historyEl.innerHTML = `<p class="text-xs text-gray-400 text-center py-3">今期暫無搭車紀錄</p>`;
       } else {
         historyEl.innerHTML = allTrips.map(t => {
           const timeStr = new Date(t.timestamp).toLocaleString('zh-HK', {
@@ -788,12 +999,12 @@
     }
 
     // ==========================================
-    // 4. 即時雲端記帳（手機與 Watch 雙向同步，離線自動補傳）
+    // 4. 即時雲端記帳（支援即時建立 + 後續自動更新推算結果）
     // ==========================================
-    window.logTripNow = async (route, fare, stopName = '', silentToast = false) => {
+    async function createInstantTripRecord({ route, fare, stopName = '' }) {
       const hk = getHKTimeInfo();
-      const cleanRoute = route.toUpperCase();
-      const numFare = Number(fare);
+      const cleanRoute = String(route || '推算中').toUpperCase();
+      const numFare = Number(fare || 0);
       const cleanStop = simplifyStopName(stopName);
       const nowMs = Date.now();
 
@@ -805,14 +1016,11 @@
           stopName: cleanStop,
           createdAt: Timestamp.fromMillis(nowMs)
         });
-        if (!silentToast) {
-          showToast(`✅ 已即時入帳 ${cleanRoute} (+$${numFare.toFixed(1)})`);
-        }
-        return docRef.id;
-      } catch (err) {
-        // 僅在離線/網絡中斷時暫存本機，恢復連線自動同步
+        return { id: docRef.id, source: 'cloud' };
+      } catch {
+        const offId = 'off_' + nowMs + '_' + Math.random().toString(36).slice(2, 6);
         const offlineItem = {
-          id: 'off_' + nowMs + '_' + Math.random().toString(36).slice(2, 6),
+          id: offId,
           month: hk.monthStr,
           route: cleanRoute,
           fare: numFare,
@@ -822,11 +1030,46 @@
         offlineQueue.unshift(offlineItem);
         localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(offlineQueue));
         recalculateAndRenderAll();
-        if (!silentToast) {
-          showToast(`📡 離線已暫存 ${cleanRoute}，連線後自動同步`, true);
-        }
-        return null;
+        return { id: offId, source: 'offline' };
       }
+    }
+
+    async function updateExistingTripRecord(recordRef, { route, fare, stopName }) {
+      if (!recordRef || !recordRef.id) return;
+      const cleanRoute = String(route || '').toUpperCase();
+      const numFare = Number(fare || 0);
+      const cleanStop = simplifyStopName(stopName);
+
+      if (recordRef.source === 'offline') {
+        offlineQueue = offlineQueue.map(t => t.id === recordRef.id ? {
+          ...t,
+          route: cleanRoute,
+          fare: numFare,
+          stopName: cleanStop
+        } : t);
+        localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(offlineQueue));
+        recalculateAndRenderAll();
+      } else {
+        try {
+          await updateDoc(doc(db, "trips", recordRef.id), {
+            route: cleanRoute,
+            fare: numFare,
+            stopName: cleanStop
+          });
+        } catch { /* 略過 */ }
+      }
+    }
+
+    window.logTripNow = async (route, fare, stopName = '', silentToast = false) => {
+      const rec = await createInstantTripRecord({ route, fare, stopName });
+      if (!silentToast) {
+        if (rec.source === 'cloud') {
+          showToast(`✅ 已即時入帳 ${route.toUpperCase()} (+$${Number(fare).toFixed(1)})`);
+        } else {
+          showToast(`📡 離線已暫存 ${route.toUpperCase()}，連線後自動同步`, true);
+        }
+      }
+      return rec;
     };
 
     window.flushOfflineTripsToCloud = async () => {
@@ -853,72 +1096,291 @@
     window.addEventListener('online', flushOfflineTripsToCloud);
 
     // ==========================================
-    // 5. 八達通拍卡自動觸發處理 (?octopus=1&amount=...)
+    // 5. 八達通「巴士 + $0 收費」即時入帳 & 智能路線/車資推算引擎
     // ==========================================
-    async function handleOctopusAutoTap() {
+    function checkIsBusAndZeroFare() {
+      const cleanedAmt = rawOctopusAmount !== null
+        ? String(rawOctopusAmount).replace(/[^0-9.-]/g, '')
+        : '';
+      const parsedAmt = cleanedAmt !== '' ? parseFloat(cleanedAmt) : 0;
+      const isZeroFare = !isNaN(parsedAmt) && parsedAmt === 0;
+      const isBusMerchant = rawOctopusMerchant === '' || /巴士|九巴|龍運|城巴|新巴|kmb|lwb|ctb|bus/i.test(rawOctopusMerchant);
+      return { isBusMerchant, isZeroFare, parsedAmt };
+    }
+
+    function lookupHistoricalRouteStats() {
+      const currentHour = getHKTimeInfo().hour;
+      const allHist = [...offlineQueue, ...cloudTrips];
+      const byRoute = {};
+
+      allHist.forEach(t => {
+        const rNo = String(t.route || '').trim().toUpperCase();
+        if (!rNo || rNo === '推算中') return;
+        if (!byRoute[rNo]) {
+          byRoute[rNo] = { route: rNo, fare: Number(t.fare || 0), stopName: t.stopName || '', totalCount: 0, hourMatchCount: 0, latest: 0 };
+        }
+        byRoute[rNo].totalCount += 1;
+        const tHour = getHKTimeInfo(new Date(t.timestamp)).hour;
+        const diffH = Math.min(Math.abs(currentHour - tHour), 24 - Math.abs(currentHour - tHour));
+        if (diffH <= 2) byRoute[rNo].hourMatchCount += 1;
+        if (t.timestamp >= byRoute[rNo].latest) {
+          byRoute[rNo].latest = t.timestamp;
+          if (Number(t.fare) > 0) byRoute[rNo].fare = Number(t.fare);
+          if (t.stopName) byRoute[rNo].stopName = t.stopName;
+        }
+      });
+
+      return byRoute;
+    }
+
+    function resolveFareFromRecords(routeNo, matchedSavedItem, histStatsMap) {
+      // 1. 優先使用「已儲存路線」內的收費
+      if (matchedSavedItem && Number(matchedSavedItem.fare) > 0) {
+        return Number(matchedSavedItem.fare);
+      }
+      // 2. 其次使用「歷史乘搭儲存紀錄」內的收費
+      const cleanR = String(routeNo || '').toUpperCase();
+      if (histStatsMap[cleanR] && Number(histStatsMap[cleanR].fare) > 0) {
+        return Number(histStatsMap[cleanR].fare);
+      }
+      // 3. 最後查詢官方正價庫
+      const official = lookupOfficialFare(cleanR);
+      return official ? Number(official.fare) : 0;
+    }
+
+    async function handleOctopusBusZeroAutoTap() {
+      const { isBusMerchant, isZeroFare, parsedAmt } = checkIsBusAndZeroFare();
+
+      if (!isBusMerchant || !isZeroFare) {
+        showToast(`ℹ️ 非巴士或收費非 $0（$${isNaN(parsedAmt) ? '0' : parsedAmt}），已略過自動入帳`, true);
+        return;
+      }
+
       const banner = document.getElementById('octopus-banner');
+      const titleEl = document.getElementById('octopus-banner-title');
       const detailEl = document.getElementById('octopus-banner-detail');
+      const altBox = document.getElementById('octopus-alt-routes');
+
       banner.classList.remove('hidden');
-      detailEl.innerText = '正在配對目前位置與巴士路線...';
+      titleEl.innerText = '🐙 八達通巴士 $0 已即時入帳';
+      detailEl.innerText = '⏳ 正在根據定位、附近車站及儲存紀錄推算路線...';
+      altBox.classList.add('hidden');
 
-      let chosenRoute = null;
+      // 步驟 A：0ms 立即在 Web 與雲端建立紀錄（鎖定拍卡時間）
+      const histStats = lookupHistoricalRouteStats();
+      const initialGuess = savedRoutes[0] || null;
+      const instantRec = await createInstantTripRecord({
+        route: initialGuess ? initialGuess.route : '推算中',
+        fare: initialGuess ? Number(initialGuess.fare) : 0,
+        stopName: initialGuess ? `${simplifyStopName(initialGuess.stopName)} (推算中)` : '定位推算中...'
+      });
+      lastOctopusRecord = instantRec;
 
+      // 步驟 B：取得定位並結合「附近巴士站 + 實時到站 + 儲存紀錄」推算
+      let userCoords = null;
       try {
         const pos = await new Promise((resolve, reject) => {
           if (!navigator.geolocation) return reject(new Error('No GPS'));
           navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true, timeout: 5000, maximumAge: 30000
+            enableHighAccuracy: true, timeout: 4500, maximumAge: 20000
           });
         });
+        userCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        lastUserCoords = userCoords;
+        try {
+          localStorage.setItem(LAST_GPS_CACHE_KEY, JSON.stringify(userCoords));
+        } catch { /* 略過 */ }
+      } catch {
+        userCoords = lastUserCoords;
+      }
 
-        const { latitude, longitude } = pos.coords;
+      let candidates = [];
+
+      try {
         const allStops = await getAllKmbStopsCached();
         const stopCoordMap = {};
         allStops.forEach(s => { stopCoordMap[s.stop] = s; });
 
-        const candidates = savedRoutes.map(r => {
-          const st = stopCoordMap[r.stopId];
-          const dist = (st && st.lat && st.long)
-            ? getDistanceMeters(latitude, longitude, parseFloat(st.lat), parseFloat(st.long))
-            : Infinity;
-          return { r, dist };
-        }).filter(x => x.dist <= 600).sort((a, b) => a.dist - b.dist);
+        // 找出目前 GPS 附近 400m 內的巴士站並查詢是否有巴士即將到達
+        const activeArrivingRoutesAtStop = new Set();
+        let nearbyStops = [];
+        if (userCoords) {
+          nearbyStops = allStops
+            .map(s => ({
+              ...s,
+              dist: Math.round(getDistanceMeters(userCoords.lat, userCoords.lng, parseFloat(s.lat), parseFloat(s.long)))
+            }))
+            .filter(s => !isNaN(s.dist) && s.dist <= 400)
+            .sort((a, b) => a.dist - b.dist)
+            .slice(0, 4);
 
-        if (candidates.length > 0) {
-          // 若 iOS 捷徑有傳入非零金額，優先配對正價相符的附近路線
-          if (!isNaN(octopusAmountParam) && octopusAmountParam > 0) {
-            const fareMatch = candidates.find(x => Math.abs(Number(x.r.fare) - octopusAmountParam) < 0.2);
-            chosenRoute = fareMatch ? fareMatch.r : candidates[0].r;
-          } else {
-            // 月票扣款為 $0 時，自動選取最近車站的路線
-            chosenRoute = candidates[0].r;
-          }
+          const now = new Date();
+          await Promise.all(nearbyStops.map(async (st) => {
+            try {
+              const ctrl = new AbortController();
+              const t = setTimeout(() => ctrl.abort(), 2500);
+              const res = await fetch(`https://data.etabus.gov.hk/v1/transport/kmb/stop-eta/${st.stop}`, { signal: ctrl.signal });
+              clearTimeout(t);
+              const json = await res.json();
+              (json.data || []).forEach(item => {
+                if (item.eta) {
+                  const mins = Math.round((new Date(item.eta) - now) / 60000);
+                  if (mins >= -1 && mins <= 3) {
+                    activeArrivingRoutesAtStop.add(`${item.route}_${st.stop}`);
+                    activeArrivingRoutesAtStop.add(item.route);
+                  }
+                }
+              });
+            } catch { /* 略過超時 */ }
+          }));
         }
-      } catch {
-        // 定位逾時則從目前組別或第一條常用路線選取
+
+        // 找出目前定位命中的自訂組別路線
+        const geoGroupRouteKeys = new Set();
+        if (userCoords) {
+          customGroups.forEach(g => {
+            if (g.lat && g.lng) {
+              const d = getDistanceMeters(userCoords.lat, userCoords.lng, parseFloat(g.lat), parseFloat(g.lng));
+              const radius = Math.min(1000, Math.max(200, Number(g.radius || 400)));
+              if (d <= radius) {
+                (g.routeKeys || []).forEach(k => geoGroupRouteKeys.add(k));
+              }
+            }
+          });
+        }
+
+        // 1. 評分「已儲存路線」
+        savedRoutes.forEach(r => {
+          const rNo = String(r.route || '').toUpperCase();
+          const st = stopCoordMap[r.stopId];
+          const dist = (userCoords && st && st.lat && st.long)
+            ? Math.round(getDistanceMeters(userCoords.lat, userCoords.lng, parseFloat(st.lat), parseFloat(st.long)))
+            : Infinity;
+
+          let score = 0;
+          let reason = '';
+
+          if (dist <= 120) { score += 110; reason = `📍距站 ${dist}m`; }
+          else if (dist <= 250) { score += 85; reason = `📍距站 ${dist}m`; }
+          else if (dist <= 450) { score += 55; reason = `📍距站 ${dist}m`; }
+          else if (dist <= 750) { score += 25; reason = `📍距站 ${dist}m`; }
+
+          if (geoGroupRouteKeys.has(getRouteKey(r))) {
+            score += 35;
+            if (!reason) reason = '📁定位組別';
+          }
+
+          if (activeArrivingRoutesAtStop.has(`${rNo}_${r.stopId}`) || (dist <= 450 && activeArrivingRoutesAtStop.has(rNo))) {
+            score += 30;
+          }
+
+          const h = histStats[rNo];
+          if (h) {
+            score += Math.min(40, h.hourMatchCount * 8);
+            score += Math.min(20, h.totalCount * 2);
+            if (!reason && h.hourMatchCount > 0) reason = '🕒常搭時段';
+          }
+
+          if (!reason) reason = '⭐常用儲存路線';
+
+          candidates.push({
+            route: rNo,
+            fare: resolveFareFromRecords(rNo, r, histStats),
+            stopName: simplifyStopName(r.stopName),
+            dist,
+            score,
+            reason
+          });
+        });
+
+        // 2. 補充：附近 250m 車站內有歷史乘搭紀錄（但未加入常用清單）的路線
+        if (nearbyStops.length > 0) {
+          const existingSavedNos = new Set(savedRoutes.map(x => String(x.route || '').toUpperCase()));
+          nearbyStops.filter(st => st.dist <= 250).forEach(st => {
+            Object.values(histStats).forEach(h => {
+              if (!existingSavedNos.has(h.route) && activeArrivingRoutesAtStop.has(h.route)) {
+                candidates.push({
+                  route: h.route,
+                  fare: resolveFareFromRecords(h.route, null, histStats),
+                  stopName: simplifyStopName(st.name_tc || h.stopName),
+                  dist: st.dist,
+                  score: 65 + Math.min(30, h.hourMatchCount * 8) + Math.min(15, h.totalCount * 2),
+                  reason: `📍附近站(${st.dist}m)＋歷史紀錄`
+                });
+              }
+            });
+          });
+        }
+      } catch { /* 若離線無車站表則直接依歷史紀錄與常用路線排序 */ }
+
+      // 若完全無候選，從歷史常搭時段或第一條常用路線保底
+      if (candidates.length === 0) {
+        const histSorted = Object.values(histStats).sort((a, b) => (b.hourMatchCount - a.hourMatchCount) || (b.totalCount - a.totalCount));
+        if (histSorted.length > 0) {
+          const topH = histSorted[0];
+          candidates.push({
+            route: topH.route,
+            fare: topH.fare,
+            stopName: simplifyStopName(topH.stopName),
+            dist: Infinity,
+            score: 10,
+            reason: '🕒歷史乘搭推算'
+          });
+        }
       }
 
-      if (!chosenRoute) {
-        const currentList = getDisplayedRoutesWithOriginalIndex();
-        chosenRoute = currentList.length > 0 ? currentList[0].r : savedRoutes[0];
-      }
+      candidates.sort((a, b) => (b.score - a.score) || (a.dist - b.dist));
 
-      if (!chosenRoute) {
-        detailEl.innerText = '請先新增至少一條常用路線';
+      if (candidates.length === 0) {
+        detailEl.innerText = '已建立 $0 紀錄，請先儲存至少一條常用路線';
         return;
       }
 
-      const docId = await window.logTripNow(chosenRoute.route, chosenRoute.fare, chosenRoute.stopName, true);
-      lastOctopusDocId = docId;
-      detailEl.innerText = `${chosenRoute.route}（${simplifyStopName(chosenRoute.stopName)}）+$${Number(chosenRoute.fare).toFixed(1)}`;
+      const best = candidates[0];
+
+      // 步驟 C：更新剛建立的紀錄為最終推算路線與儲存收費
+      await updateExistingTripRecord(lastOctopusRecord, {
+        route: best.route,
+        fare: best.fare,
+        stopName: best.stopName
+      });
+
+      titleEl.innerText = `🐙 八達通巴士 $0 自動入帳（${best.reason}）`;
+      detailEl.innerText = `${best.route}${best.stopName ? `（${best.stopName}）` : ''} +$${Number(best.fare).toFixed(1)}`;
+
+      // 若同站/附近還有其他高分候選路線，顯示快速切換按鈕
+      const alts = candidates.slice(1, 4).filter(c => c.route !== best.route || c.stopName !== best.stopName);
+      if (alts.length > 0) {
+        altBox.classList.remove('hidden');
+        altBox.innerHTML = `<span class="text-[10px] text-emerald-300 flex-shrink-0">改選：</span>` + alts.map(a => `
+          <button onclick="switchOctopusInferredRoute('${escapeJs(a.route)}', ${a.fare}, '${escapeJs(a.stopName)}')"
+            class="flex-shrink-0 bg-black/45 hover:bg-black/70 border border-emerald-500/40 text-white text-[11px] font-bold px-2 py-1 rounded-lg active:scale-95">
+            ${escapeHtml(a.route)} $${Number(a.fare).toFixed(1)}
+          </button>
+        `).join('');
+      }
     }
+
+    window.switchOctopusInferredRoute = async (route, fare, stopName) => {
+      if (!lastOctopusRecord) return;
+      await updateExistingTripRecord(lastOctopusRecord, { route, fare, stopName });
+      document.getElementById('octopus-banner-title').innerText = '🐙 八達通巴士 $0 已更正路線';
+      document.getElementById('octopus-banner-detail').innerText = `${route}${stopName ? `（${stopName}）` : ''} +$${Number(fare).toFixed(1)}`;
+      showToast(`✅ 已更正為 ${route} (+$${Number(fare).toFixed(1)})`);
+    };
 
     window.undoOctopusAutoTrip = async () => {
       document.getElementById('octopus-banner').classList.add('hidden');
-      if (lastOctopusDocId) {
-        const id = lastOctopusDocId;
-        lastOctopusDocId = null;
-        await deleteDoc(doc(db, "trips", id));
+      if (lastOctopusRecord) {
+        const target = lastOctopusRecord;
+        lastOctopusRecord = null;
+        if (target.source === 'offline') {
+          offlineQueue = offlineQueue.filter(t => t.id !== target.id);
+          localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(offlineQueue));
+          recalculateAndRenderAll();
+        } else {
+          await deleteDoc(doc(db, "trips", target.id));
+        }
         showToast("🗑️ 已撤銷剛才的八達通自動紀錄");
       }
     };
@@ -1007,15 +1469,16 @@
     };
 
     // ==========================================
-    // 7. 智能建議路線
+    // 7. 智能建議路線（僅記錄非儲存的路線，並按乘搭次數排序）
     // ==========================================
     function renderSuggestedRoutes(allTrips = null) {
       const section = document.getElementById('suggested-section');
       const listEl = document.getElementById('suggested-list');
 
+      const cycle = computePassCycleInfo();
       const tripsSource = allTrips || [
-        ...offlineQueue.map(t => ({ ...t, source: 'offline' })),
-        ...cloudTrips
+        ...offlineQueue.filter(t => t.timestamp >= cycle.startMs && t.timestamp <= cycle.endMs).map(t => ({ ...t, source: 'offline' })),
+        ...cloudTrips.filter(t => t.timestamp >= cycle.startMs && t.timestamp <= cycle.endMs)
       ];
 
       if (tripsSource.length === 0) {
@@ -1023,29 +1486,30 @@
         return;
       }
 
-      const currentHour = getHKTimeInfo().hour;
+      const savedRouteNumbers = new Set(
+        savedRoutes.map(r => String(r.route || '').trim().toUpperCase()).filter(Boolean)
+      );
+
       const stats = {};
-
       tripsSource.forEach(t => {
-        const key = t.route;
-        if (!stats[key]) {
-          stats[key] = { route: t.route, fare: t.fare, stopName: t.stopName, count: 0, score: 0, latest: 0 };
-        }
-        stats[key].count += 1;
-        const tripHour = getHKTimeInfo(new Date(t.timestamp)).hour;
-        const hourDiff = Math.min(Math.abs(currentHour - tripHour), 24 - Math.abs(currentHour - tripHour));
-        stats[key].score += (hourDiff <= 2 ? 2.5 : 1);
+        const cleanRoute = String(t.route || '').trim().toUpperCase();
+        if (!cleanRoute || cleanRoute === '推算中' || savedRouteNumbers.has(cleanRoute)) return;
 
-        if (t.timestamp >= stats[key].latest) {
-          stats[key].latest = t.timestamp;
-          stats[key].fare = t.fare;
-          if (t.stopName) stats[key].stopName = t.stopName;
+        if (!stats[cleanRoute]) {
+          stats[cleanRoute] = { route: cleanRoute, fare: t.fare, stopName: t.stopName, count: 0, latest: 0 };
+        }
+        stats[cleanRoute].count += 1;
+
+        if (t.timestamp >= stats[cleanRoute].latest) {
+          stats[cleanRoute].latest = t.timestamp;
+          stats[cleanRoute].fare = t.fare;
+          if (t.stopName) stats[cleanRoute].stopName = t.stopName;
         }
       });
 
       const topRoutes = Object.values(stats)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 4);
+        .sort((a, b) => (b.count - a.count) || (b.latest - a.latest))
+        .slice(0, 6);
 
       if (topRoutes.length === 0) {
         section.classList.add('hidden');
@@ -1060,7 +1524,8 @@
             <span class="kmb-red text-white font-extrabold text-xs px-1.5 py-0.5 rounded">${escapeHtml(r.route)}</span>
             <span class="text-xs font-bold text-amber-300">+$${Number(r.fare).toFixed(1)}</span>
           </div>
-          <div class="text-[10px] text-gray-400 mt-1">已搭 ${r.count} 次 · 點擊記帳</div>
+          ${r.stopName ? `<div class="text-[10px] text-gray-300 truncate max-w-[115px] mt-1">${escapeHtml(simplifyStopName(r.stopName))}</div>` : ''}
+          <div class="text-[10px] text-gray-400 mt-0.5">已搭 <b class="text-amber-300">${r.count}</b> 次 · 點擊記帳</div>
         </button>
       `).join('');
     }
@@ -1095,7 +1560,7 @@
       if (customGroups.length === 0) {
         bar.innerHTML = `
           <button onclick="openGroupManager()" class="text-[11px] bg-gray-900 hover:bg-gray-700 text-indigo-300 border border-indigo-500/40 px-2.5 py-1 rounded-full flex items-center gap-1">
-            ➕ 建立路線組別（支援 200m–1km 自動切換）
+            ➕ 建立路線組別（支援每 200m–1km 自動切換）
           </button>
         `;
         hint.innerText = '';
@@ -1138,7 +1603,6 @@
 
       bar.innerHTML = pills.join('');
 
-      // 自動將目前選中的組別標籤捲動至可視範圍中央
       const activeTabEl = bar.querySelector(`[data-tab-id="${CSS.escape(activeGroupFilter)}"]`);
       if (activeTabEl) {
         activeTabEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
@@ -1180,7 +1644,6 @@
       }
     };
 
-    // 實時到站卡片左右滑動切換組別
     (function setupUnifiedSwipeGesture() {
       const section = document.getElementById('unified-route-section');
       let startX = 0;
@@ -1227,6 +1690,9 @@
       navigator.geolocation.getCurrentPosition((pos) => {
         const { latitude, longitude } = pos.coords;
         lastUserCoords = { lat: latitude, lng: longitude };
+        try {
+          localStorage.setItem(LAST_GPS_CACHE_KEY, JSON.stringify(lastUserCoords));
+        } catch { /* 略過 */ }
 
         let bestMatch = null;
         geoGroups.forEach(g => {
@@ -1250,7 +1716,6 @@
       }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 });
     }
 
-    // 依照組別內的 routeKeys 順序回傳要顯示的路線清單
     function getDisplayedRoutesWithOriginalIndex() {
       const targetGroup = getActiveTargetGroup();
       if (!targetGroup) {
@@ -1269,7 +1734,6 @@
       return ordered;
     }
 
-    // 組內排序 & 全部路線排序
     window.enterMainSortMode = () => {
       const viewList = getDisplayedRoutesWithOriginalIndex();
       if (viewList.length === 0) return showToast("⚠️ 目前畫面沒有可排序的路線", true);
@@ -1337,7 +1801,6 @@
       const targetGroup = getActiveTargetGroup();
 
       if (targetGroup) {
-        // 在目前組別內排序
         const keys = [...(targetGroup.routeKeys || [])];
         if (direction === 'top' && idxInView > 0) {
           const [item] = keys.splice(idxInView, 1);
@@ -1352,7 +1815,6 @@
         const updatedGroups = customGroups.map(g => g.id === targetGroup.id ? { ...g, routeKeys: keys } : g);
         await syncSettingsToCloud(savedRoutes, updatedGroups);
       } else {
-        // 在全部路線內排序
         const updated = [...savedRoutes];
         if (direction === 'top' && idxInView > 0) {
           const [item] = updated.splice(idxInView, 1);
@@ -1674,7 +2136,6 @@
       const editId = document.getElementById('edit-group-id').value;
       const existingGroup = editId ? customGroups.find(g => g.id === editId) : null;
 
-      // 保留原有組內排序，新勾選的路線排在後方
       let orderedKeys = checkedKeys;
       if (existingGroup && Array.isArray(existingGroup.routeKeys)) {
         const checkedSet = new Set(checkedKeys);
@@ -1687,7 +2148,7 @@
       const lat = document.getElementById('group-lat').value;
       const lng = document.getElementById('group-lng').value;
       const locationLabel = document.getElementById('group-loc-label').value;
-      const radius = Number(document.getElementById('group-radius-input').value || 400);
+      const radius = Math.min(1000, Math.max(200, Number(document.getElementById('group-radius-input').value || 400)));
 
       const groupObj = {
         id: editId || ('grp_' + Date.now()),
@@ -1747,7 +2208,7 @@
     }
 
     // ==========================================
-    // 10. GPS 即時定位搜站與路線新增
+    // 10. GPS 即時定位搜站、直接記賬 & 加入組別儲存路線
     // ==========================================
     function getDistanceMeters(lat1, lon1, lat2, lon2) {
       const R = 6371000;
@@ -1770,6 +2231,20 @@
         localStorage.setItem(STOPS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: stops }));
       } catch { /* 略過 */ }
       return stops;
+    }
+
+    function populateStep3GroupSelect() {
+      const sel = document.getElementById('new-route-group');
+      if (!sel) return;
+      const prevVal = sel.value;
+      const baseOpt = `<option value="">📁 儲存時加入組別（選填：不加入組別）</option>`;
+      const groupOpts = customGroups.map(g =>
+        `<option value="${escapeHtml(g.id)}">📁 直接加入組別：${escapeHtml(g.name)}</option>`
+      ).join('');
+      sel.innerHTML = baseOpt + groupOpts;
+      if (prevVal && customGroups.some(g => g.id === prevVal)) {
+        sel.value = prevVal;
+      }
     }
 
     function renderNearbyGroupedRoutesList() {
@@ -1814,7 +2289,7 @@
         return;
       }
 
-      box.innerHTML = `<p class="text-sky-300">📡 正在取得 GPS 座標並彙整附近九巴路線...</p>`;
+      box.innerHTML = `<p class="text-sky-300">📡 正在取得 GPS 座標並彙整 1 公里內九巴路線...</p>`;
 
       navigator.geolocation.getCurrentPosition(async (pos) => {
         try {
@@ -1827,12 +2302,12 @@
               ...s,
               dist: Math.round(getDistanceMeters(latitude, longitude, parseFloat(s.lat), parseFloat(s.long)))
             }))
-            .filter(s => !isNaN(s.dist) && s.dist <= 800)
+            .filter(s => !isNaN(s.dist) && s.dist <= 1000)
             .sort((a, b) => a.dist - b.dist)
-            .slice(0, 14);
+            .slice(0, 15);
 
           if (nearbyStops.length === 0) {
-            box.innerHTML = `<p class="text-amber-400">附近 800 米內搵唔到九巴站，請改用下方手動搜尋。</p>`;
+            box.innerHTML = `<p class="text-amber-400">附近 1 公里內搵唔到九巴站，請改用下方手動搜尋。</p>`;
             return;
           }
 
@@ -1987,7 +2462,7 @@
             }
             const fareInfo = lookupOfficialFare(group.route, group.dir, item.seq);
             const distTag = dist !== null
-              ? `<span class="${dist <= 800 ? 'text-sky-400 font-bold' : 'text-gray-400'} mr-1">[${dist >= 1000 ? (dist / 1000).toFixed(1) + 'km' : dist + 'm'}]</span>`
+              ? `<span class="${dist <= 1000 ? 'text-sky-400 font-bold' : 'text-gray-400'} mr-1">[${dist >= 1000 ? (dist / 1000).toFixed(1) + 'km' : dist + 'm'}]</span>`
               : '';
             const fareTag = fareInfo
               ? `<span class="text-emerald-400 font-bold">$${fareInfo.fare.toFixed(1)}</span>`
@@ -2129,6 +2604,30 @@
       }
     };
 
+    function resetStep3Form() {
+      document.getElementById('new-route').value = '';
+      document.getElementById('new-fare').value = '';
+      document.getElementById('new-stop-name').value = '';
+      document.getElementById('new-dest-name').value = '';
+      document.getElementById('new-stop-id').value = '';
+      document.getElementById('new-stop-seq').value = '';
+      document.getElementById('new-route-group').value = '';
+      document.getElementById('fare-source-badge').innerText = '';
+    }
+
+    window.logTripDirectlyFromStep3 = async () => {
+      const route = document.getElementById('new-route').value.trim().toUpperCase();
+      const fare = parseFloat(document.getElementById('new-fare').value);
+      const stopName = simplifyStopName(document.getElementById('new-stop-name').value.trim());
+
+      if (!route || isNaN(fare)) return showToast("⚠️ 請填寫路線及正價收費", true);
+
+      await window.logTripNow(route, fare, stopName, true);
+      resetStep3Form();
+      closeSettings();
+      showToast(`✅ 已直接記賬 ${route} (+$${fare.toFixed(1)})`);
+    };
+
     window.addCustomRoute = async () => {
       const route = document.getElementById('new-route').value.trim().toUpperCase();
       const fare = parseFloat(document.getElementById('new-fare').value);
@@ -2136,6 +2635,7 @@
       let dest = document.getElementById('new-dest-name').value.trim();
       const stopId = document.getElementById('new-stop-id').value.trim().toUpperCase();
       const dir = document.getElementById('new-dir').value;
+      const targetGroupId = document.getElementById('new-route-group').value;
 
       if (!route || isNaN(fare)) return showToast("⚠️ 請填寫路線及正價收費", true);
 
@@ -2153,18 +2653,27 @@
         dir
       };
 
-      const updated = [...savedRoutes, newRouteObj];
-      await syncSettingsToCloud(updated, customGroups);
+      const updatedRoutes = [...savedRoutes, newRouteObj];
+      let updatedGroups = customGroups;
+      let joinedGroupName = '';
 
-      document.getElementById('new-route').value = '';
-      document.getElementById('new-fare').value = '';
-      document.getElementById('new-stop-name').value = '';
-      document.getElementById('new-dest-name').value = '';
-      document.getElementById('new-stop-id').value = '';
-      document.getElementById('new-stop-seq').value = '';
-      document.getElementById('fare-source-badge').innerText = '';
+      if (targetGroupId) {
+        updatedGroups = customGroups.map(g => {
+          if (g.id === targetGroupId) {
+            joinedGroupName = g.name;
+            const existingKeys = Array.isArray(g.routeKeys) ? g.routeKeys : [];
+            return { ...g, routeKeys: [...existingKeys, newRouteObj.id] };
+          }
+          return g;
+        });
+      }
 
-      showToast("💾 已儲存路線並同步至手錶");
+      await syncSettingsToCloud(updatedRoutes, updatedGroups);
+      resetStep3Form();
+
+      showToast(joinedGroupName
+        ? `💾 已儲存路線並加入「${joinedGroupName}」`
+        : "💾 已儲存路線並同步至手錶");
       closeSettings();
     };
 
@@ -2222,16 +2731,26 @@
     };
 
     window.openSettings = () => {
+      populateStep3GroupSelect();
       document.getElementById('settings-modal').classList.remove('hidden');
       initOfficialFares();
       findNearbyRoutes();
     };
     window.closeSettings = () => document.getElementById('settings-modal').classList.add('hidden');
 
-    // 初始化執行
+    // ==========================================
+    // 初始化執行（若帶 ?octopus=1 則即時執行巴士 $0 自動記帳）
+    // ==========================================
+    updateCycleHeaderLabels();
+    ensureTripsSubscription(true);
     initOfficialFares();
     recalculateAndRenderAll();
     flushOfflineTripsToCloud();
+
+    if (isOctopusTrigger && !octopusHandled) {
+      octopusHandled = true;
+      handleOctopusBusZeroAutoTap();
+    }
   </script>
 </body>
 </html>
